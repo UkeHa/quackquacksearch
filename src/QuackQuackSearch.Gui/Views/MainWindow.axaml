@@ -1,0 +1,110 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:QuackQuackSearch.Gui.ViewModels"
+        xmlns:m="using:QuackQuackSearch.Gui.Models"
+        x:Class="QuackQuackSearch.Gui.Views.MainWindow"
+        x:DataType="vm:MainWindowViewModel"
+        Title="QuackQuackSearch"
+        Width="1050" Height="650"
+        MinWidth="600" MinHeight="400"
+        WindowStartupLocation="CenterScreen">
+
+    <Grid RowDefinitions="Auto,Auto,*,Auto">
+
+        <!-- Top Search Bar -->
+        <Border Grid.Row="0" Padding="12,12,12,6" Background="{DynamicResource SystemChromeLowColor}">
+            <Grid ColumnDefinitions="*,Auto,Auto">
+                <TextBox Grid.Column="0"
+                         Name="SearchInputBox"
+                         Text="{Binding SearchText, Mode=TwoWay}"
+                         PlaceholderText="Dateiname, Erweiterung oder Wildcards (z.B. *.cs, config, doc, quack)..."
+                         FontSize="15"
+                         Padding="10,8"
+                         CornerRadius="6"
+                         VerticalContentAlignment="Center" />
+
+                <Button Grid.Column="1"
+                        Content="✕"
+                        Command="{Binding ClearSearch}"
+                        Margin="6,0,0,0"
+                        Padding="12,8"
+                        ToolTip.Tip="Suche leeren"
+                        CornerRadius="6" />
+
+                <Button Grid.Column="2"
+                        Content="⚙️ Pfade"
+                        Name="SettingsButton"
+                        Margin="6,0,0,0"
+                        Padding="12,8"
+                        ToolTip.Tip="Überwachte Pfade verwalten"
+                        CornerRadius="6" />
+            </Grid>
+        </Border>
+
+        <!-- Category Filter Chips -->
+        <Border Grid.Row="1" Padding="12,4,12,8" Background="{DynamicResource SystemChromeLowColor}">
+            <StackPanel Name="FilterPanel" Orientation="Horizontal" Spacing="6">
+                <Button Content="Alle" Tag="all" Click="FilterButton_Click" CornerRadius="12" Padding="10,4" />
+                <Button Content="Dateien" Tag="files" Click="FilterButton_Click" CornerRadius="12" Padding="10,4" />
+                <Button Content="Ordner" Tag="dirs" Click="FilterButton_Click" CornerRadius="12" Padding="10,4" />
+                <Button Content="Dokumente" Tag="docs" Click="FilterButton_Click" CornerRadius="12" Padding="10,4" />
+                <Button Content="Bilder" Tag="images" Click="FilterButton_Click" CornerRadius="12" Padding="10,4" />
+                <Button Content="Audio/Video" Tag="media" Click="FilterButton_Click" CornerRadius="12" Padding="10,4" />
+                <Button Content="Code" Tag="code" Click="FilterButton_Click" CornerRadius="12" Padding="10,4" />
+                <Button Content="Archive" Tag="archives" Click="FilterButton_Click" CornerRadius="12" Padding="10,4" />
+            </StackPanel>
+        </Border>
+
+        <!-- Results DataGrid -->
+        <DataGrid Grid.Row="2"
+                  Name="FilesDataGrid"
+                  ItemsSource="{Binding Results}"
+                  SelectedItem="{Binding SelectedItem, Mode=TwoWay}"
+                  AutoGenerateColumns="False"
+                  IsReadOnly="True"
+                  CanUserResizeColumns="True"
+                  CanUserSortColumns="True"
+                  GridLinesVisibility="Horizontal"
+                  SelectionMode="Single"
+                  DoubleTapped="DataGrid_DoubleTapped"
+                  KeyDown="DataGrid_KeyDown">
+
+            <DataGrid.ContextMenu>
+                <ContextMenu>
+                    <MenuItem Header="Öffnen (Enter)" Click="MenuOpen_Click" />
+                    <MenuItem Header="Im Dateimanager anzeigen (Strg+O)" Click="MenuOpenFolder_Click" />
+                    <Separator />
+                    <MenuItem Header="Pfad kopieren (Strg+Umschalt+C)" Click="MenuCopyPath_Click" />
+                    <MenuItem Header="Dateiname kopieren (Strg+C)" Click="MenuCopyName_Click" />
+                </ContextMenu>
+            </DataGrid.ContextMenu>
+
+            <DataGrid.Columns>
+                <DataGridTemplateColumn Header="Name" Width="300">
+                    <DataGridTemplateColumn.CellTemplate>
+                        <DataTemplate DataType="m:FileItemModel">
+                            <StackPanel Orientation="Horizontal" Spacing="8" Margin="8,0">
+                                <TextBlock Text="{Binding IconGlyph}" VerticalAlignment="Center" FontSize="16" />
+                                <TextBlock Text="{Binding Name}" FontWeight="Medium" VerticalAlignment="Center" />
+                            </StackPanel>
+                        </DataTemplate>
+                    </DataGridTemplateColumn.CellTemplate>
+                </DataGridTemplateColumn>
+
+                <DataGridTextColumn Header="Pfad" Binding="{Binding DirectoryPath}" Width="*" />
+                <DataGridTextColumn Header="Größe" Binding="{Binding FormattedSize}" Width="110" />
+                <DataGridTextColumn Header="Geändert am" Binding="{Binding FormattedDate}" Width="160" />
+            </DataGrid.Columns>
+        </DataGrid>
+
+        <!-- Bottom Status Bar -->
+        <Border Grid.Row="3" Padding="12,6" Background="{DynamicResource SystemChromeLowColor}" BorderBrush="{DynamicResource SystemBaseLowColor}" BorderThickness="0,1,0,0">
+            <Grid ColumnDefinitions="Auto,*,Auto">
+                <TextBlock Grid.Column="0" Text="{Binding StatusLeft}" FontSize="12" Opacity="0.85" VerticalAlignment="Center" />
+                <TextBlock Grid.Column="1" Text="{Binding StatusMiddle}" FontSize="12" FontWeight="SemiBold" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                <TextBlock Grid.Column="2" Text="{Binding StatusDaemon}" FontSize="12" Opacity="0.9" VerticalAlignment="Center" Foreground="{DynamicResource SystemAccentColor}" />
+            </Grid>
+        </Border>
+
+    </Grid>
+</Window>

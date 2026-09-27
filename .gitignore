@@ -1,0 +1,20 @@
+## Build results
+[Bb]in/
+[Oo]bj/
+[Ll]og/
+[Ll]ogs/
+
+## Visual Studio & IDEs
+.vs/
+.idea/
+.vscode/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+## Caches & Local runtime files
+*.tmp
+*.cache
+.DS_Store
+Thumbs.db

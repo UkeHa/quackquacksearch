@@ -1,0 +1,11 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/QuackQuackSearch.Cli/QuackQuackSearch.Cli.csproj" />
+    <Project Path="src/QuackQuackSearch.Core/QuackQuackSearch.Core.csproj" />
+    <Project Path="src/QuackQuackSearch.Daemon/QuackQuackSearch.Daemon.csproj" />
+    <Project Path="src/QuackQuackSearch.Gui/QuackQuackSearch.Gui.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/QuackQuackSearch.Tests/QuackQuackSearch.Tests.csproj" />
+  </Folder>
+</Solution>
