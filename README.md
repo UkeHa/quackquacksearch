@@ -1,3 +1,4 @@
+![Alt text](qqs.png?raw=true "QQS")
 # 🦆 QuackQuackSearch (qqs)
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
