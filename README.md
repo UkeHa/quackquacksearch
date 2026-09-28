@@ -1,10 +1,8 @@
-
-<img 
-    style="display: block; 
-           margin-left: auto;
-           margin-right: auto;
-           width: 15%;"
-src="qqs.png" alt="QQS the logo for this project. It shows a duck detective holding a magnifier, searching for something" >
+<p align="center">
+  <a href="https://github.com/UkeHa/quackquacksearch">
+    <img src="qqs.png" alt="QQS the logo for this project. It shows a duck detective holding a magnifier, searching for something" width="300">
+  </a>
+</p>
 
 # 🦆 QuackQuackSearch (qqs)
 
