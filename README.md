@@ -3,8 +3,8 @@
     style="display: block; 
            margin-left: auto;
            margin-right: auto;
-           width: 30%;"
-src="qqs.png" width=30% alt="QQS the logo for this project. It shows a duck detective holding a magnifier, searching for something" >
+           width: 15%;"
+src="qqs.png" alt="QQS the logo for this project. It shows a duck detective holding a magnifier, searching for something" >
 
 # 🦆 QuackQuackSearch (qqs)
 
