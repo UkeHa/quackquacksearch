@@ -1,4 +1,11 @@
-![Alt text](qqs.png?raw=true "QQS")
+
+<img 
+    style="display: block; 
+           margin-left: auto;
+           margin-right: auto;
+           width: 30%;"
+src="qqs.png" width=30% alt="QQS the logo for this project. It shows a duck detective holding a magnifier, searching for something" >
+
 # 🦆 QuackQuackSearch (qqs)
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
