@@ -1,36 +1,43 @@
 # 🦆 QuackQuackSearch (qqs)
 
-> **Blitzschnelle Datei-Suche für Linux – nach dem Vorbild von *Everything* (Windows)**
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![.NET](https://img.shields.io/badge/.NET-10.0-purple.svg)](https://dotnet.microsoft.com/)
+[![Platform](https://img.shields.io/badge/Platform-Linux-orange.svg)](https://kernel.org)
+[![Desktop](https://img.shields.io/badge/Desktop-KDE%20%7C%20GNOME%20%7C%20XFCE-brightgreen.svg)](#)
 
-QuackQuackSearch ist ein leichtgewichtiger, extrem schneller Datei-Indexierer und Suchdienst für Linux. Er hält die Verzeichnisstruktur in einem speichereffizienten In-Memory-Index, aktualisiert lokale Pfade über Linux `inotify` in Echtzeit, überwacht Netzwerkfreigaben (NFS, SMB, SSHFS) per Polling und stellt die Suchergebnisse in Millisekunden über CLI, eine moderne Desktop-GUI sowie eine native **KDE Plasma KRunner**-Integration bereit.
+> **Lightning-fast file search for Linux – modeled after *Everything* on Windows.**
 
----
+QuackQuackSearch is a lightweight, ultra-fast file indexer and search service for Linux. It maintains directory paths in a memory-efficient in-memory index, tracks local filesystem changes in real time via Linux `inotify`, polls remote network mounts (NFS, SMB, SSHFS) asynchronously, and serves sub-millisecond search results via CLI, a modern desktop GUI, and native **KDE Plasma KRunner** integration.
 
-## ⚡ Hauptmerkmale
-
-- 🚀 **Sub-Millisekunden-Suche:** SIMD-beschleunigte (AVX2/NEON) Teilstring-Suche und Relevanz-Ranking über hunderttausende Dateien in unter 1 ms.
-- 💾 **Kompakte Speicherstruktur:** Hierarchische Pfadkompression via `DirectoryTable` (Deduplizierung von Ordnerpfaden, nur ~35–50 Byte RAM pro Datei).
-- 🔄 **Echtzeit-Synchronisation:** Linux-nativer `inotify`-Watcher für lokale Dateisysteme (`IN_CREATE`, `IN_DELETE`, `IN_MOVED_FROM`, `IN_MOVED_TO`).
-- 🌐 **Netzwerkfreigaben-Support:** Separater Polling-Scheduler mit konfigurierbaren Intervallen und IO-Timeouts für NFS-, CIFS/SMB- und SSHFS-Mounts.
-- 🔌 **Native KDE KRunner Integration:** Direktes Durchsuchen über `Alt+Space` / `Alt+F2` per D-Bus (`org.kde.krunner1`).
-- 🖥️ **Moderne Desktop-GUI:** Gebaut mit Avalonia UI 11, mit Live-Suche, virtueller Tabelle, Filter-Chips (Dokumente, Bilder, Audio, Code etc.) und automatischer Erkennung des System-Themes (KDE BreezeDark / Light).
-- ⚙️ **D-Bus Daemon & systemd-Dienst:** Läuft transparent im Benutzer-Hintergrund mit automatischem Snapshotting bei Beendigung.
-- 💻 **Mächtige CLI (`qqs`):** Komplette Verwaltung, Suche, Mount-Erkennung und Benchmarks direkt im Terminal.
+[🇩🇪 Deutsche Dokumentation (README-DE.md)](README-DE.md)
 
 ---
 
-## 🏗️ Architekturübersicht
+## ⚡ Key Features
 
-QuackQuackSearch ist modular in 4 Komponenten aufgebaut:
+- 🚀 **Sub-Millisecond Search:** SIMD-accelerated (AVX2/NEON) substring matching and relevance ranking across hundreds of thousands of files in under 1 ms.
+- 💾 **Compact In-Memory Index:** Hierarchical path compression using `DirectoryTable` (folder path deduplication, requiring only ~35–50 bytes of RAM per indexed item).
+- 🔄 **Real-Time Synchronization:** Linux-native `inotify` watcher for local filesystems (`IN_CREATE`, `IN_DELETE`, `IN_MOVED_FROM`, `IN_MOVED_TO`).
+- 🌐 **Network Mount Support:** Dedicated polling scheduler with configurable intervals and IO timeouts for NFS, CIFS/Samba, and SSHFS shares.
+- 🔌 **Native KDE KRunner Integration:** Search instantly from `Alt+Space` / `Alt+F2` over session D-Bus (`org.kde.krunner1`).
+- 🖥️ **Modern Desktop GUI:** Built with Avalonia UI 11, featuring live search-as-you-type, virtualized high-performance DataGrid, category filter chips (Documents, Images, Audio, Code, etc.), and automatic system theme detection (KDE BreezeDark / Light).
+- ⚙️ **Background D-Bus Daemon:** Runs transparently as a systemd user service with fast snapshot persistence on shutdown.
+- 💻 **Powerful CLI (`qqs`):** Full control over searches, live monitoring, mount detection, and crawler/search benchmarks.
+
+---
+
+## 🏗️ Architecture Overview
+
+QuackQuackSearch is designed as a modular solution across 4 projects:
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │                    QuackQuackSearch.Core                    │
 │  - DirectoryTable & CompactFileEntry (In-Memory Index)      │
-│  - SimdMatcher & ResultRanker (Vektorielle Suche)           │
-│  - FastFileSystemCrawler & IgnoreMatcher (Glob-Filter)       │
+│  - SimdMatcher & ResultRanker (Vectorized Search)           │
+│  - FastFileSystemCrawler & IgnoreMatcher (Glob Filters)     │
 │  - LocalInotifyWatcher & NetworkPollingScheduler            │
-│  - IndexSerializer (MessagePack Schnellspeicherung)        │
+│  - IndexSerializer (MessagePack Fast Serialization)        │
 └──────────────┬───────────────────────────────┬──────────────┘
                │                               │
 ┌──────────────▼──────────────┐ ┌──────────────▼──────────────┐
@@ -43,54 +50,54 @@ QuackQuackSearch ist modular in 4 Komponenten aufgebaut:
                ├───────────────────────────────┘
 ┌──────────────┴──────────────┐
 │    QuackQuackSearch.Cli     │
-│  - Befehl: qqs              │
+│  - Command: qqs             │
 │  - IPC Client & Direct Scan │
 └─────────────────────────────┘
 ```
 
 ---
 
-## 📋 Systemvoraussetzungen
+## 📋 System Requirements
 
-- **Betriebssystem:** Linux (Kernel 5.x oder neuer) mit x86_64- oder ARM64-Architektur
-- **Laufzeitumgebung / SDK:** [.NET 10.0 SDK oder Runtime](https://dotnet.microsoft.com/download)
-- **Desktop (optional):** Beliebige Desktop-Umgebung (KDE Plasma 6 empfohlen für KRunner-Integration)
+- **Operating System:** Linux (Kernel 5.x or newer) with x86_64 or ARM64 architecture
+- **Runtime / SDK:** [.NET 10.0 SDK or Runtime](https://dotnet.microsoft.com/download)
+- **Desktop Environment (optional):** Any desktop environment (KDE Plasma 6 recommended for native KRunner integration)
 
 ---
 
 ## 📦 Installation
 
-QuackQuackSearch liefert ein komfortables `install.sh`-Skript mit, das alle Binärdateien kompiliert, Wrapper-Skripte installiert, den Desktop-Eintrag anlegt, das KRunner-Plugin registriert und den Hintergrunddienst einrichtet.
+QuackQuackSearch includes an automated installation script (`install.sh`) that compiles all projects in Release mode, sets up binaries and symlinks, installs desktop entries, configures the KRunner plugin, and enables the systemd user service.
 
-### Standard-Installation (Benutzer-Ebene, kein root erforderlich)
+### Quick Install (User-level, no root/sudo required)
 
 ```bash
 git clone https://github.com/quackquacksearch/quackquacksearch.git
 cd quackquacksearch
 
-# Installation ausführen
+# Run the installer
 ./install.sh
 ```
 
-### Was das Skript installiert:
-- **Binärdateien & Bibliotheken:** `~/.local/lib/quackquacksearch/`
-- **CLI- & Start-Befehle:** `~/.local/bin/qqs`, `~/.local/bin/quackquacksearch-daemon`, `~/.local/bin/quackquacksearch-gui`
-- **Desktop-Starter:** `~/.local/share/applications/quackquacksearch-gui.desktop`
-- **KRunner-Plugin:** `~/.local/share/krunner/dbusplugins/quackquacksearch.desktop`
-- **systemd-Benutzerdienst:** `~/.config/systemd/user/quackquacksearch.service` (wird automatisch aktiviert und gestartet)
+### What gets installed:
+- **Binaries & Libraries:** `~/.local/lib/quackquacksearch/`
+- **Executables & Symlinks:** `~/.local/bin/qqs`, `~/.local/bin/quackquacksearch-daemon`, `~/.local/bin/quackquacksearch-gui`
+- **Desktop Launcher:** `~/.local/share/applications/quackquacksearch-gui.desktop`
+- **KRunner D-Bus Plugin:** `~/.local/share/krunner/dbusplugins/quackquacksearch.desktop`
+- **systemd User Service:** `~/.config/systemd/user/quackquacksearch.service` (automatically enabled and started)
 
-> **Tipp:** Falls `~/.local/bin` noch nicht in Ihrer `PATH`-Variable enthalten ist, fügen Sie folgende Zeile zu Ihrer `~/.bashrc` oder `~/.zshrc` hinzu:
+> **Note:** If `~/.local/bin` is not already in your `PATH`, add the following line to your `~/.bashrc` or `~/.zshrc`:
 > ```bash
 > export PATH="$HOME/.local/bin:$PATH"
 > ```
 
-### Installationsoptionen
+### Installation Options
 
 ```bash
-# Anderes Präfix verwenden (z. B. Systemweit nach /usr/local)
+# Install to a custom prefix (e.g. system-wide in /usr/local)
 sudo ./install.sh --prefix /usr/local
 
-# systemd-Dienst nicht automatisch starten (z. B. im Docker-Container / CI)
+# Do not enable or start the systemd service (e.g. inside Docker / CI)
 ./install.sh --no-service
 ```
 
@@ -98,24 +105,25 @@ sudo ./install.sh --prefix /usr/local
 
 ## ⚡ KDE Plasma KRunner Integration
 
-QuackQuackSearch integriert sich nahtlos als Suchanbieter in **KDE Plasma (Plasma 5 & Plasma 6)**. Dateien können direkt über die globale Suchleiste (`Alt+Space` oder `Alt+F2`) gefunden und geöffnet werden.
+QuackQuackSearch provides first-class, native integration with **KDE Plasma (Plasma 5 & Plasma 6)** via KRunner. You can locate and open files immediately using the global search prompt (`Alt+Space` or `Alt+F2`) without switching to another application window.
 
-### Funktionsweise
+### How It Works
 
-1. Der QuackQuackSearch-Daemon registriert das standardisierte D-Bus-Interface `org.kde.krunner1` auf dem Session-Bus unter:
-   - **Service:** `org.quackquacksearch.Daemon`
-   - **Objekt-Pfad:** `/quackquacksearch`
-2. KRunner kommuniziert asynchron über D-Bus mit dem Daemon. Suchabfragen werden direkt im RAM-Index mit SIMD ausgeführt und innerhalb von Bruchteilen einer Millisekunde zurückgegeben.
-3. Treffer werden mit passenden MIME-Icons (Dokument, Bild, Ordner etc.) dargestellt.
+1. The background daemon registers the standard `org.kde.krunner1` D-Bus interface on the Session Bus:
+   - **Service Name:** `org.quackquacksearch.Daemon`
+   - **Object Path:** `/quackquacksearch`
+2. When you type into KRunner, Plasma dispatches asynchronous match requests over D-Bus directly to the QuackQuackSearch daemon.
+3. The daemon scans its in-memory index using SIMD vectors and returns ranked results with appropriate MIME icons (documents, source code, folders, media) in fractions of a millisecond.
+4. Selecting a result directly executes or opens the file; contextual runner actions allow opening the parent folder in Dolphin with the file highlighted.
 
-### KRunner Plugin Registrierung
+### Plugin Registration
 
-Das Installationsskript platziert automatisch die Plugin-Deskriptordatei:
+The installer automatically deploys the runner descriptor to:
 ```
 ~/.local/share/krunner/dbusplugins/quackquacksearch.desktop
 ```
 
-Inhalt der Datei:
+File content:
 ```ini
 [Desktop Entry]
 Name=QuackQuackSearch
@@ -131,102 +139,102 @@ X-Plasma-DBusRunner-Service=org.quackquacksearch.Daemon
 X-Plasma-DBusRunner-Path=/quackquacksearch
 ```
 
-### Aktivierung in KDE Plasma
+### Enabling in KDE System Settings
 
-1. Öffnen Sie die **KDE Systemeinstellungen** (*System Settings*).
-2. Navigieren Sie zu **Suchen** → **Plasma-Suche** (*Plasma Search*).
-3. Vergewissern Sie sich, dass **QuackQuackSearch** in der Liste aktiviert ist.
-4. Sie können die Priorität von QuackQuackSearch nach Wunsch nach oben verschieben.
+1. Open **System Settings** (*Systemeinstellungen*).
+2. Go to **Search** → **Plasma Search** (*Suchen → Plasma-Suche*).
+3. Ensure **QuackQuackSearch** is checked in the list of search providers.
+4. You can adjust its position in the list to prioritize QuackQuackSearch results at the top.
 
-### KRunner-Nutzung & Aktionen
+### Using KRunner
 
-- **Suchen:** Drücken Sie `Alt+Space` (oder `Alt+F2`) und tippen Sie den gesuchten Dateinamen ein (mindestens 2 Zeichen).
-- **Öffnen:** Drücken Sie `Enter` auf einem Treffer, um die Datei mit der Standardanwendung zu öffnen.
-- **Übergeordneten Ordner öffnen:** Jeder Treffer bietet eine KRunner-Aktion (Zahnrad / Menü oder `Alt+Enter`), um direkt den Ordner im Dateimanager (Dolphin) zu öffnen und die Datei hervorzuheben.
+- **Querying:** Press `Alt+Space` (or `Alt+F2`) and start typing your file query (minimum 2 characters).
+- **Default Action (`Enter`):** Opens the matched file in its default associated application.
+- **Secondary Action (`Alt+Enter` or action button):** Select *Open Containing Folder* to open Dolphin pointing to the folder with the target file selected.
 
-### Diagnose & Fehlerbehebung für KRunner
+### Troubleshooting KRunner Integration
 
-- **KRunner neu starten:**
+- **Restart KRunner:**
   ```bash
   kquitapp6 krunner 2>/dev/null || true
-  # KRunner startet bei der nächsten Betätigung von Alt+Space automatisch neu
+  # KRunner will automatically restart on the next Alt+Space invocation
   ```
-- **Prüfen, ob der Daemon auf D-Bus lauscht:**
+- **Verify Daemon is running on D-Bus:**
   ```bash
   qqs status
   ```
-- **D-Bus KRunner-Methode manuell abfragen:**
+- **Test KRunner D-Bus response directly:**
   ```bash
-  qdbus6 org.quackquacksearch.Daemon /quackquacksearch org.kde.krunner1.Match "test"
+  qdbus6 org.quackquacksearch.Daemon /quackquacksearch org.kde.krunner1.Match "myquery"
   ```
-  *(Bei älteren Systemen `qdbus` statt `qdbus6` verwenden)*
+  *(On older systems, use `qdbus` instead of `qdbus6`)*
 
 ---
 
-## 💻 CLI-Referenz (`qqs`)
+## 💻 CLI Reference (`qqs`)
 
-Das CLI-Tool `qqs` kommuniziert transparent mit dem laufenden Hintergrund-Daemon. Läuft der Daemon nicht, führt `qqs search` automatisch einen direkten Crawl der konfigurierten Pfade durch.
+The `qqs` command-line utility provides instant access to the search index and daemon management. If the daemon is temporarily offline, `qqs search` gracefully falls back to a fast direct local directory scan.
 
-| Befehl | Beschreibung |
+| Command | Description |
 |---|---|
-| `qqs search <query>` | Sucht Dateien nach Teilstring oder Dateiendung |
-| `qqs status` | Zeigt Daemon-Status, RAM-Verbrauch, Dateianzahl und Pfade |
-| `qqs add <pfad> [--network]` | Fügt einen neuen lokalen oder Netzwerk-Pfad zur Überwachung hinzu |
-| `qqs remove <pfad>` | Entfernt einen Pfad (entfernt Treffer sofort aus dem Index) |
-| `qqs rescan [pfad]` | Erzwingt einen Hintergrund-Neu-Scan eines Pfades |
-| `qqs mounts` | Scannt und listet alle lokalen und Netzwerk-Laufwerke (`/proc/mounts`) |
-| `qqs benchmark [ordner]` | Misst Crawler-Geschwindigkeit und SIMD-Suchdurchsatz |
-| `qqs gui` | Startet die grafische Desktop-Oberfläche |
-| `qqs config [show\|init]` | Zeigt die aktuelle Konfiguration oder legt Standardwerte an |
-| `qqs service [install\|start\|status]` | Verwaltet den systemd `--user` Dienst |
+| `qqs search <query>` | Search for files by substring or extension |
+| `qqs status` | Display daemon status, indexed file count, RAM usage, and monitored paths |
+| `qqs add <path> [--network]` | Add a new local or network path to live indexing |
+| `qqs remove <path>` | Remove a path from live indexing and immediately purge its entries |
+| `qqs rescan [path]` | Force a background re-index of a configured path |
+| `qqs mounts` | Inspect local and network mount points (`/proc/mounts`) |
+| `qqs benchmark [dir]` | Measure filesystem crawler speed and SIMD search throughput |
+| `qqs gui` | Launch the graphical desktop interface |
+| `qqs config [show\|init]` | View or generate default configuration |
+| `qqs service [install\|start\|status]` | Manage the systemd `--user` service unit |
 
-### Beispiele
+### Examples
 
 ```bash
-# Suche nach PDF-Dateien mit "rechnung" im Namen
-qqs search rechnung.pdf
+# Search for invoices
+qqs search invoice.pdf
 
-# Status des Indexers abfragen
+# Check index statistics
 qqs status
 
-# Lokalen Ordner hinzufügen
+# Add a local folder to real-time monitoring
 qqs add ~/Projects
 
-# Netzwerkfreigabe (NFS/SMB) hinzufügen
+# Add a remote SMB or NFS network share
 qqs add /mnt/nas_share --network
 
-# Ordner aus Index und Überwachung entfernen
+# Remove a path (all its indexed files are removed immediately)
 qqs remove ~/Projects
 
-# Leistungs-Benchmark im aktuellen Verzeichnis
+# Run performance benchmark on current directory
 qqs benchmark .
 ```
 
 ---
 
-## 🖥️ Desktop-Benutzeroberfläche (GUI)
+## 🖥️ Desktop Graphical Interface (GUI)
 
-Die grafische Benutzeroberfläche (`quackquacksearch-gui` oder `qqs gui`) bietet das vertraute Everything-Gefühl auf dem Linux-Desktop:
+The GUI application (`quackquacksearch-gui` or `qqs gui`) delivers the classic "Everything" experience on Linux:
 
-- **Echtzeit-Suche beim Tippen:** Suchergebnisse erscheinen ohne spürbare Verzögerung während der Eingabe.
-- **Kategorie-Filter (Chips):** Schnellfilter nach Dokumenten, Bildern, Audio, Video, Archiven oder Quellcode.
-- **Virtuelle Tabelle:** Extrem flüssiges Scrolling auch bei zehntausenden Treffern durch UI-Virtualisierung.
-- **Kontextmenü & Tastatur-Navigation:**
-  - `Doppelklick` oder `Enter`: Datei ausführen / öffnen
-  - `Rechtsklick`: *Datei öffnen*, *Im Ordner anzeigen*, *Dateipfad kopieren*
-- **KDE System-Theme (BreezeDark) Integration:** Erkennt automatisch das dunkle oder helle Desktop-Farbschema und passt sich nahtlos an KDE Plasma an.
-- **Einstellungen-Dialog:** Pfade hinzufügen und entfernen mit sofortiger Live-Bereinigung des Index.
+- **Search-As-You-Type:** Instantaneous result updates with debounced input.
+- **Filter Chips:** Rapidly restrict searches to *Documents*, *Images*, *Audio*, *Video*, *Archives*, or *Code*.
+- **Virtualized DataGrid:** Fluid scrolling with zero lag across tens of thousands of search hits.
+- **Context Menu & Shortcuts:**
+  - `Double-click` or `Enter`: Open file with default application.
+  - `Right-click`: *Open*, *Open Containing Folder*, *Copy Full Path*.
+- **KDE System Theme Support:** Automatic detection of dark/light theme (KDE BreezeDark via `kreadconfig6` and desktop portal).
+- **Settings Dialog:** Add or remove indexed paths dynamically with instant index updates.
 
 ---
 
-## ⚙️ Konfiguration
+## ⚙️ Configuration
 
-Die Konfigurationsdatei befindet sich unter:
+The configuration file is located at:
 ```
 ~/.config/quackquacksearch/config.json
 ```
 
-Beispielkonfiguration:
+Example configuration:
 ```json
 {
   "crawler": {
@@ -272,23 +280,23 @@ Beispielkonfiguration:
 
 ---
 
-## 🗑️ Deinstallation
+## 🗑️ Uninstallation
 
-Zum sauberen Entfernen aller installierten Komponenten:
+To cleanly remove all installed components:
 
 ```bash
-# Standard-Deinstallation (behält Konfiguration & Cache bei)
+# Standard uninstall (preserves configuration and index cache)
 ./uninstall.sh
 
-# Vollständige Deinstallation inklusive Löschen aller Konfigurations- und Cache-Dateien
+# Complete purge (removes configuration and cache files as well)
 ./uninstall.sh --purge
 ```
 
 ---
 
-## 🧪 Tests
+## 🧪 Testing
 
-Die Testsuite umfasst 29 automatisierte Unittests für alle Kernmodule (Indexkompression, SIMD-Matching, inotify-Events, Ignore-Pattern, Serialisierung und Mount-Erkennung):
+The test suite contains 29 automated unit tests verifying the index compression, SIMD matchers, inotify event handling, glob ignore rules, serialization, and mount scanner:
 
 ```bash
 dotnet test
@@ -296,6 +304,6 @@ dotnet test
 
 ---
 
-## 📄 Lizenz
+## 📄 License
 
-MIT License – freie Nutzung für private und kommerzielle Zwecke.
+This project is licensed under the MIT License – see the [LICENSE](LICENSE) file for details.
