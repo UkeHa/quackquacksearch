@@ -22,13 +22,16 @@ QuackQuackSearch is a lightweight, ultra-fast file indexer and search service fo
 ## ⚡ Key Features
 
 - 🚀 **Sub-Millisecond Search:** SIMD-accelerated (AVX2/NEON) substring matching and relevance ranking across hundreds of thousands of files in under 1 ms.
+- ⚡ **Fuzzy Search:** Typo tolerance (Damerau-Levenshtein) and subsequence matching (like `fzf`/`fzy`) with word-boundary scoring across CLI, GUI, and KRunner.
 - 💾 **Compact In-Memory Index:** Hierarchical path compression using `DirectoryTable` (folder path deduplication, requiring only ~35–50 bytes of RAM per indexed item).
 - 🔄 **Real-Time Synchronization:** Linux-native `inotify` watcher for local filesystems (`IN_CREATE`, `IN_DELETE`, `IN_MOVED_FROM`, `IN_MOVED_TO`).
 - 🌐 **Network Mount Support:** Dedicated polling scheduler with configurable intervals and IO timeouts for NFS, CIFS/Samba, and SSHFS shares.
+- ⌨️ **Global GUI Hotkey (`Meta+Shift+F`):** Single-Instance window toggle: instantly summon or minimize the desktop search from anywhere.
 - 🔌 **Native KDE KRunner Integration:** Search instantly from `Alt+Space` / `Alt+F2` over session D-Bus (`org.kde.krunner1`).
-- 🖥️ **Modern Desktop GUI:** Built with Avalonia UI 11, featuring live search-as-you-type, virtualized high-performance DataGrid, category filter chips (Documents, Images, Audio, Code, etc.), and automatic system theme detection (KDE BreezeDark / Light).
+- 🖥️ **Modern Desktop GUI:** Built with Avalonia UI 11, featuring live search-as-you-type, fuzzy toggle, virtualized high-performance DataGrid, category filter chips, and automatic KDE BreezeDark/Light theme sync.
 - ⚙️ **Background D-Bus Daemon:** Runs transparently as a systemd user service with fast snapshot persistence on shutdown.
 - 💻 **Powerful CLI (`qqs`):** Full control over searches, live monitoring, mount detection, and crawler/search benchmarks.
+- 🔄 **Automated CI/CD & Releases:** Continuous integration and automated GitHub Releases on every push to `main`.
 
 ---
 
@@ -183,25 +186,33 @@ The `qqs` command-line utility provides instant access to the search index and d
 
 | Command | Description |
 |---|---|
-| `qqs search <query>` | Search for files by substring or extension |
+| `qqs search <query> [--fuzzy]` | Search for files by substring or extension (with optional fuzzy matching) |
 | `qqs status` | Display daemon status, indexed file count, RAM usage, and monitored paths |
 | `qqs add <path> [--network]` | Add a new local or network path to live indexing |
 | `qqs remove <path>` | Remove a path from live indexing and immediately purge its entries |
 | `qqs rescan [path]` | Force a background re-index of a configured path |
 | `qqs mounts` | Inspect local and network mount points (`/proc/mounts`) |
 | `qqs benchmark [dir]` | Measure filesystem crawler speed and SIMD search throughput |
-| `qqs gui` | Launch the graphical desktop interface |
+| `qqs hotkey [register\|status]` | Manage or register global desktop shortcut (`Meta+Shift+F`) |
+| `qqs gui` | Launch or summon the graphical desktop interface |
 | `qqs config [show\|init]` | View or generate default configuration |
 | `qqs service [install\|start\|status]` | Manage the systemd `--user` service unit |
 
 ### Examples
 
 ```bash
-# Search for invoices
+# Search for invoices (exact or substring)
 qqs search invoice.pdf
+
+# Fuzzy search (typo tolerance & abbreviation matching like 'qqs' -> 'QuackQuackSearch')
+qqs search qqs --fuzzy
+qqs search reprot --fuzzy
 
 # Check index statistics
 qqs status
+
+# Register global hotkey in KDE Plasma
+qqs hotkey register
 
 # Add a local folder to real-time monitoring
 qqs add ~/Projects
@@ -223,9 +234,13 @@ qqs benchmark .
 The GUI application (`quackquacksearch-gui` or `qqs gui`) delivers the classic "Everything" experience on Linux:
 
 - **Search-As-You-Type:** Instantaneous result updates with debounced input.
+- **⚡ Fuzzy Search Toggle:** Click `⚡ Fuzzy` in the search bar to toggle subsequence abbreviation matching and typo tolerance.
 - **Filter Chips:** Rapidly restrict searches to *Documents*, *Images*, *Audio*, *Video*, *Archives*, or *Code*.
 - **Virtualized DataGrid:** Fluid scrolling with zero lag across tens of thousands of search hits.
-- **Context Menu & Shortcuts:**
+- **Single-Instance IPC & Global Hotkey:**
+  - `Meta+Shift+F`: Global hotkey to summon the window or minimize it.
+  - `Escape`: First press clears search query, second press minimizes/hides the window.
+  - `Ctrl+F` or `Ctrl+L`: Instantly focus search bar and select all text.
   - `Double-click` or `Enter`: Open file with default application.
   - `Right-click`: *Open*, *Open Containing Folder*, *Copy Full Path*.
 - **KDE System Theme Support:** Automatic detection of dark/light theme (KDE BreezeDark via `kreadconfig6` and desktop portal).

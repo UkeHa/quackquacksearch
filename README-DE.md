@@ -11,13 +11,16 @@ QuackQuackSearch ist ein leichtgewichtiger, extrem schneller Datei-Indexierer un
 ## ⚡ Hauptmerkmale
 
 - 🚀 **Sub-Millisekunden-Suche:** SIMD-beschleunigte (AVX2/NEON) Teilstring-Suche und Relevanz-Ranking über hunderttausende Dateien in unter 1 ms.
+- ⚡ **Fuzzy-Suche:** Tippfehler-Toleranz (Damerau-Levenshtein) und Subsequenz-Matching (wie `fzf`/`fzy`) mit Wortgrenzen-Boni in CLI, GUI und KRunner.
 - 💾 **Kompakte Speicherstruktur:** Hierarchische Pfadkompression via `DirectoryTable` (Deduplizierung von Ordnerpfaden, nur ~35–50 Byte RAM pro Datei).
 - 🔄 **Echtzeit-Synchronisation:** Linux-nativer `inotify`-Watcher für lokale Dateisysteme (`IN_CREATE`, `IN_DELETE`, `IN_MOVED_FROM`, `IN_MOVED_TO`).
 - 🌐 **Netzwerkfreigaben-Support:** Separater Polling-Scheduler mit konfigurierbaren Intervallen und IO-Timeouts für NFS-, CIFS/SMB- und SSHFS-Mounts.
+- ⌨️ **Globaler GUI-Hotkey (`Meta+Shift+F`):** Single-Instance Fenstertoggle: holt die Suche sofort aus jeder Anwendung in den Vordergrund oder minimiert sie.
 - 🔌 **Native KDE KRunner Integration:** Direktes Durchsuchen über `Alt+Space` / `Alt+F2` per D-Bus (`org.kde.krunner1`).
-- 🖥️ **Moderne Desktop-GUI:** Gebaut mit Avalonia UI 11, mit Live-Suche, virtueller Tabelle, Filter-Chips (Dokumente, Bilder, Audio, Code etc.) und automatischer Erkennung des System-Themes (KDE BreezeDark / Light).
+- 🖥️ **Moderne Desktop-GUI:** Gebaut mit Avalonia UI 11, mit Live-Suche, Fuzzy-Toggle, virtueller Tabelle, Filter-Chips und automatischer Erkennung des System-Themes (KDE BreezeDark / Light).
 - ⚙️ **D-Bus Daemon & systemd-Dienst:** Läuft transparent im Benutzer-Hintergrund mit automatischem Snapshotting bei Beendigung.
 - 💻 **Mächtige CLI (`qqs`):** Komplette Verwaltung, Suche, Mount-Erkennung und Benchmarks direkt im Terminal.
+- 🔄 **Automatisierte CI/CD & Releases:** Continuous Integration und automatische GitHub Releases bei Commits auf `main`.
 
 ---
 
@@ -171,25 +174,33 @@ Das CLI-Tool `qqs` kommuniziert transparent mit dem laufenden Hintergrund-Daemon
 
 | Befehl | Beschreibung |
 |---|---|
-| `qqs search <query>` | Sucht Dateien nach Teilstring oder Dateiendung |
+| `qqs search <query> [--fuzzy]` | Sucht Dateien nach Teilstring oder Dateiendung (optional mit Fuzzy-Matching) |
 | `qqs status` | Zeigt Daemon-Status, RAM-Verbrauch, Dateianzahl und Pfade |
 | `qqs add <pfad> [--network]` | Fügt einen neuen lokalen oder Netzwerk-Pfad zur Überwachung hinzu |
 | `qqs remove <pfad>` | Entfernt einen Pfad (entfernt Treffer sofort aus dem Index) |
 | `qqs rescan [pfad]` | Erzwingt einen Hintergrund-Neu-Scan eines Pfades |
 | `qqs mounts` | Scannt und listet alle lokalen und Netzwerk-Laufwerke (`/proc/mounts`) |
 | `qqs benchmark [ordner]` | Misst Crawler-Geschwindigkeit und SIMD-Suchdurchsatz |
-| `qqs gui` | Startet die grafische Desktop-Oberfläche |
+| `qqs hotkey [register\|status]` | Verwaltet oder registriert das globale Tastenkürzel (`Meta+Shift+F`) |
+| `qqs gui` | Startet oder holt die grafische Desktop-Oberfläche in den Vordergrund |
 | `qqs config [show\|init]` | Zeigt die aktuelle Konfiguration oder legt Standardwerte an |
 | `qqs service [install\|start\|status]` | Verwaltet den systemd `--user` Dienst |
 
 ### Beispiele
 
 ```bash
-# Suche nach PDF-Dateien mit "rechnung" im Namen
+# Exakte oder Teilstring-Suche
 qqs search rechnung.pdf
+
+# Fuzzy-Suche (Tippfehler & Abkürzungen wie 'qqs' -> 'QuackQuackSearch')
+qqs search qqs --fuzzy
+qqs search reprot --fuzzy
 
 # Status des Indexers abfragen
 qqs status
+
+# Globalen Hotkey in KDE Plasma registrieren
+qqs hotkey register
 
 # Lokalen Ordner hinzufügen
 qqs add ~/Projects
@@ -211,9 +222,13 @@ qqs benchmark .
 Die grafische Benutzeroberfläche (`quackquacksearch-gui` oder `qqs gui`) bietet das vertraute Everything-Gefühl auf dem Linux-Desktop:
 
 - **Echtzeit-Suche beim Tippen:** Suchergebnisse erscheinen ohne spürbare Verzögerung während der Eingabe.
+- **⚡ Fuzzy-Suche Schalter:** Schnelles Umschalten zwischen exakter/Teilstring-Suche und fehlertoleranter Subsequenz-Suche (`⚡ Fuzzy`).
 - **Kategorie-Filter (Chips):** Schnellfilter nach Dokumenten, Bildern, Audio, Video, Archiven oder Quellcode.
 - **Virtuelle Tabelle:** Extrem flüssiges Scrolling auch bei zehntausenden Treffern durch UI-Virtualisierung.
-- **Kontextmenü & Tastatur-Navigation:**
+- **Single-Instance & Globale Hotkeys:**
+  - `Meta+Shift+F`: Globaler Hotkey zum Öffnen/In den Vordergrund holen oder Minimieren.
+  - `Escape`: Erster Druck leert das Suchfeld, zweiter Druck minimiert das Fenster.
+  - `Ctrl+F` oder `Ctrl+L`: Suchleiste sofort fokussieren und Text markieren.
   - `Doppelklick` oder `Enter`: Datei ausführen / öffnen
   - `Rechtsklick`: *Datei öffnen*, *Im Ordner anzeigen*, *Dateipfad kopieren*
 - **KDE System-Theme (BreezeDark) Integration:** Erkennt automatisch das dunkle oder helle Desktop-Farbschema und passt sich nahtlos an KDE Plasma an.

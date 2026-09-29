@@ -40,6 +40,7 @@ public static class Program
                 "mounts" => HandleMounts(),
                 "config" => HandleConfig(args[1..]),
                 "service" => HandleService(args[1..]),
+                "hotkey" => HandleHotkey(args[1..]),
                 "gui" => HandleGui(args[1..]),
                 _ => HandleUnknownCommand(command)
             };
@@ -56,7 +57,7 @@ public static class Program
         AnsiConsole.MarkupLine("[bold yellow]QuackQuackSearch (qqs)[/] - Lightning fast Linux file search");
         AnsiConsole.MarkupLine("[grey]Usage: qqs <command> [[arguments]][/]\n");
         AnsiConsole.MarkupLine("[bold]Search & Status:[/]");
-        AnsiConsole.MarkupLine("  [green]qqs search <query>[/]           Searches via running daemon (or local fallback)");
+        AnsiConsole.MarkupLine("  [green]qqs search <query> [[[grey]--fuzzy[/]]][/] Searches via running daemon (or local fallback)");
         AnsiConsole.MarkupLine("  [green]qqs status[/]                   Displays running daemon status and monitored paths");
         AnsiConsole.MarkupLine("  [green]qqs add <path> [[[grey]--network[/]]][/]   Adds path to live monitoring");
         AnsiConsole.MarkupLine("  [green]qqs remove <path>[/]            Removes path from live monitoring");
@@ -67,6 +68,7 @@ public static class Program
         AnsiConsole.MarkupLine("  [green]qqs mounts[/]                    Lists detected local and network mounts");
         AnsiConsole.MarkupLine("  [green]qqs config [[show|init]][/]        Inspects or initializes configuration");
         AnsiConsole.MarkupLine("  [green]qqs service [[install|start|status]][/] Manages systemd --user service unit");
+        AnsiConsole.MarkupLine("  [green]qqs hotkey [[register|status]][/] Manages global GUI desktop hotkey (Meta+Shift+F)");
         AnsiConsole.MarkupLine("  [green]qqs gui[/]                       Launches desktop graphical interface");
         AnsiConsole.WriteLine();
     }
@@ -97,28 +99,44 @@ public static class Program
 
     private static async Task<int> HandleSearchAsync(string[] args)
     {
-        if (args.Length == 0)
+        bool fuzzy = false;
+        var queryParts = new List<string>();
+
+        foreach (var arg in args)
+        {
+            if (arg is "--fuzzy" or "-f")
+            {
+                fuzzy = true;
+            }
+            else
+            {
+                queryParts.Add(arg);
+            }
+        }
+
+        if (queryParts.Count == 0)
         {
             AnsiConsole.MarkupLine("[red]Please provide a search query.[/]");
             return 1;
         }
 
-        string query = args[0];
+        string query = queryParts[0];
         var daemon = await TryGetDaemonServiceAsync();
 
         if (daemon != null)
         {
             var sw = Stopwatch.StartNew();
-            var results = await daemon.SearchAsync(query, 30);
+            var results = await daemon.SearchWithOptionsAsync(query, 30, fuzzy);
             sw.Stop();
 
-            AnsiConsole.MarkupLine($"[green]Daemon found {results.Length} results in {sw.Elapsed.TotalMilliseconds:F2} ms:[/]");
+            string mode = fuzzy ? " (Fuzzy)" : "";
+            AnsiConsole.MarkupLine($"[green]Daemon found {results.Length} results in {sw.Elapsed.TotalMilliseconds:F2} ms{mode}:[/]");
             DisplayResultsTable(results.Select(r => new SearchResult(r.FullPath, r.FileName, r.Size, DateTimeOffset.FromUnixTimeSeconds(r.ModifiedTime), r.IsDirectory, r.Score)));
             return 0;
         }
 
         // Fallback: standalone crawl if daemon is not running
-        string searchDir = args.Length > 1 ? args[1] : Directory.GetCurrentDirectory();
+        string searchDir = queryParts.Count > 1 ? queryParts[1] : Directory.GetCurrentDirectory();
         AnsiConsole.MarkupLine("[grey](Daemon is not running. Performing direct local scan...)[/]");
 
         var engine = new SearchIndexEngine();
@@ -136,10 +154,11 @@ public static class Program
             });
 
         var localSw = Stopwatch.StartNew();
-        var localResults = engine.Search(query, new SearchOptions { MaxResults = 30 });
+        var localResults = engine.Search(query, new SearchOptions { MaxResults = 30, Fuzzy = fuzzy });
         localSw.Stop();
 
-        AnsiConsole.MarkupLine($"[green]Found {localResults.Count} results in {localSw.Elapsed.TotalMilliseconds:F2} ms (searched {engine.TotalFiles:N0} files):[/]");
+        string localMode = fuzzy ? " (Fuzzy)" : "";
+        AnsiConsole.MarkupLine($"[green]Found {localResults.Count} results in {localSw.Elapsed.TotalMilliseconds:F2} ms{localMode} (searched {engine.TotalFiles:N0} files):[/]");
         DisplayResultsTable(localResults);
         return 0;
     }
@@ -590,6 +609,53 @@ WantedBy=default.target
 
         AnsiConsole.MarkupLine("[yellow]QuackQuackSearch GUI binary not found. Please install via install.sh or build the project.[/]");
         return 1;
+    }
+
+    private static int HandleHotkey(string[] args)
+    {
+        string sub = args.Length > 0 ? args[0].ToLowerInvariant() : "status";
+        string shortcut = "Meta+Shift+F";
+
+        if (sub is "register" or "install")
+        {
+            AnsiConsole.MarkupLine($"[cyan]Registering global shortcut ({shortcut}) for QuackQuackSearch GUI...[/]");
+            bool registered = false;
+
+            if (File.Exists("/usr/bin/kwriteconfig6"))
+            {
+                Process.Start("kwriteconfig6", "--file kglobalshortcutsrc --group quackquacksearch-gui.desktop --key _k_friendly_name QuackQuackSearch")?.WaitForExit();
+                Process.Start("kwriteconfig6", $"--file kglobalshortcutsrc --group quackquacksearch-gui.desktop --key _launch \"{shortcut},none,Launch QuackQuackSearch\"")?.WaitForExit();
+                Process.Start("kquitapp6", "kglobalaccel 2>/dev/null || true")?.WaitForExit();
+                registered = true;
+                AnsiConsole.MarkupLine($"[green]Successfully registered KDE Plasma global shortcut:[/] [bold cyan]{shortcut}[/]");
+            }
+            else if (File.Exists("/usr/bin/kwriteconfig5"))
+            {
+                Process.Start("kwriteconfig5", "--file kglobalshortcutsrc --group quackquacksearch-gui.desktop --key _k_friendly_name QuackQuackSearch")?.WaitForExit();
+                Process.Start("kwriteconfig5", $"--file kglobalshortcutsrc --group quackquacksearch-gui.desktop --key _launch \"{shortcut},none,Launch QuackQuackSearch\"")?.WaitForExit();
+                registered = true;
+                AnsiConsole.MarkupLine($"[green]Successfully registered KDE Plasma global shortcut:[/] [bold cyan]{shortcut}[/]");
+            }
+
+            if (!registered)
+            {
+                AnsiConsole.MarkupLine("[yellow]Could not automatically detect KDE Plasma config tool.[/]");
+                AnsiConsole.MarkupLine("To configure manually in your desktop settings:");
+                AnsiConsole.MarkupLine("  • [bold]Command:[/] [green]quackquacksearch-gui[/] or [green]qqs gui[/]");
+                AnsiConsole.MarkupLine($"  • [bold]Recommended Shortcut:[/] [cyan]{shortcut}[/]");
+            }
+
+            return 0;
+        }
+
+        AnsiConsole.MarkupLine("[bold]Global Hotkey Configuration:[/]");
+        AnsiConsole.MarkupLine($"  • Default Shortcut: [bold cyan]{shortcut}[/]");
+        AnsiConsole.MarkupLine("  • Target Command:   [green]quackquacksearch-gui[/]");
+        AnsiConsole.MarkupLine("  • Behavior:         Toggles & brings GUI to front (Single-Instance)");
+        AnsiConsole.WriteLine();
+        AnsiConsole.MarkupLine("To register for KDE Plasma automatically, run:");
+        AnsiConsole.MarkupLine("  [green]qqs hotkey register[/]");
+        return 0;
     }
 
     private static string FormatBytes(long bytes)

@@ -60,6 +60,21 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged, IDisposable
         }
     }
 
+    private bool _isFuzzy;
+    public bool IsFuzzy
+    {
+        get => _isFuzzy;
+        set
+        {
+            if (_isFuzzy != value)
+            {
+                _isFuzzy = value;
+                OnPropertyChanged();
+                RestartDebounceTimer();
+            }
+        }
+    }
+
     public string StatusLeft
     {
         get => _statusLeft;
@@ -201,7 +216,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged, IDisposable
             {
                 try
                 {
-                    var dtos = await _daemonService.SearchAsync(query, 200);
+                    var dtos = await _daemonService.SearchWithOptionsAsync(query, 200, IsFuzzy);
                     foreach (var d in dtos)
                     {
                         _allCurrentResults.Add(ToModel(d));
@@ -217,7 +232,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged, IDisposable
 
             if (_daemonService == null && _fallbackEngine.TotalFiles > 0)
             {
-                var matches = _fallbackEngine.Search(query, new SearchOptions { MaxResults = 200 });
+                var matches = _fallbackEngine.Search(query, new SearchOptions { MaxResults = 200, Fuzzy = IsFuzzy });
                 foreach (var m in matches)
                 {
                     _allCurrentResults.Add(ToModel(m));

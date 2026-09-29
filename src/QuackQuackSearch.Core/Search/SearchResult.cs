@@ -13,5 +13,6 @@ public sealed record SearchOptions(
     int MaxResults = 50,
     bool IncludeDirectories = true,
     bool IncludeHidden = false,
-    bool SearchInPath = false
+    bool SearchInPath = false,
+    bool Fuzzy = false
 );

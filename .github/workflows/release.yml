@@ -1,0 +1,68 @@
+name: Automated Release
+on:
+  push:
+    branches: [ main ]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build & Publish Release
+    runs-on: ubuntu-latest
+    if: "!contains(github.event.head_commit.message, '[skip release]')"
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup .NET 10
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+          dotnet-quality: 'preview'
+
+      - name: Run Tests
+        run: dotnet test QuackQuackSearch.slnx --configuration Release
+
+      # Build x64 package
+      - name: Build and Package (linux-x64)
+        run: |
+          mkdir -p dist/x64/lib/cli dist/x64/lib/daemon dist/x64/lib/gui
+          dotnet publish src/QuackQuackSearch.Cli/QuackQuackSearch.Cli.csproj -c Release -r linux-x64 --self-contained false -o dist/x64/lib/cli --nologo -v q
+          dotnet publish src/QuackQuackSearch.Daemon/QuackQuackSearch.Daemon.csproj -c Release -r linux-x64 --self-contained false -o dist/x64/lib/daemon --nologo -v q
+          dotnet publish src/QuackQuackSearch.Gui/QuackQuackSearch.Gui.csproj -c Release -r linux-x64 --self-contained false -o dist/x64/lib/gui --nologo -v q
+          cp install.sh uninstall.sh README.md README-DE.md dist/x64/
+          tar -czf quackquacksearch-linux-x64.tar.gz -C dist/x64 .
+
+      # Build arm64 package
+      - name: Build and Package (linux-arm64)
+        run: |
+          mkdir -p dist/arm64/lib/cli dist/arm64/lib/daemon dist/arm64/lib/gui
+          dotnet publish src/QuackQuackSearch.Cli/QuackQuackSearch.Cli.csproj -c Release -r linux-arm64 --self-contained false -o dist/arm64/lib/cli --nologo -v q
+          dotnet publish src/QuackQuackSearch.Daemon/QuackQuackSearch.Daemon.csproj -c Release -r linux-arm64 --self-contained false -o dist/arm64/lib/daemon --nologo -v q
+          dotnet publish src/QuackQuackSearch.Gui/QuackQuackSearch.Gui.csproj -c Release -r linux-arm64 --self-contained false -o dist/arm64/lib/gui --nologo -v q
+          cp install.sh uninstall.sh README.md README-DE.md dist/arm64/
+          tar -czf quackquacksearch-linux-arm64.tar.gz -C dist/arm64 .
+
+      - name: Determine Version Tag
+        id: vars
+        run: |
+          VERSION="v0.1.${{ github.run_number }}"
+          echo "tag=${VERSION}" >> $GITHUB_OUTPUT
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.vars.outputs.tag }}
+          name: "Release ${{ steps.vars.outputs.tag }}"
+          generate_release_notes: true
+          draft: false
+          prerelease: false
+          files: |
+            quackquacksearch-linux-x64.tar.gz
+            quackquacksearch-linux-arm64.tar.gz
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -37,6 +37,7 @@ public struct DaemonStatusDto
 public interface IDaemonService : IDBusObject
 {
     Task<SearchResultDto[]> SearchAsync(string query, int maxResults);
+    Task<SearchResultDto[]> SearchWithOptionsAsync(string query, int maxResults, bool fuzzy);
     Task<bool> AddPathAsync(string path, string type);
     Task<bool> RemovePathAsync(string path);
     Task<bool> SetPathEnabledAsync(string path, bool enabled);

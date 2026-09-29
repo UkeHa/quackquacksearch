@@ -7,10 +7,13 @@ namespace QuackQuackSearch.Gui.Views;
 
 public partial class MainWindow : Window
 {
+    public static MainWindow? Instance { get; private set; }
+
     private MainWindowViewModel ViewModel => (MainWindowViewModel)DataContext!;
 
     public MainWindow()
     {
+        Instance = this;
         InitializeComponent();
         var vm = new MainWindowViewModel();
         DataContext = vm;
@@ -29,8 +32,7 @@ public partial class MainWindow : Window
 
         Opened += (_, _) =>
         {
-            var searchBox = this.FindControl<TextBox>("SearchInputBox");
-            searchBox?.Focus();
+            FocusSearchBox();
 
             var panel = this.FindControl<StackPanel>("FilterPanel");
             if (panel?.Children.FirstOrDefault() is Button firstBtn)
@@ -39,14 +41,61 @@ public partial class MainWindow : Window
             }
         };
 
+        Closed += (_, _) =>
+        {
+            Instance = null;
+        };
+
         KeyDown += (_, e) =>
         {
             if (e.Key == Key.Escape)
             {
-                vm.ClearSearch();
+                if (!string.IsNullOrEmpty(vm.SearchText))
+                {
+                    vm.ClearSearch();
+                }
+                else
+                {
+                    WindowState = WindowState.Minimized;
+                }
+                e.Handled = true;
+            }
+            else if ((e.KeyModifiers & KeyModifiers.Control) != 0 && (e.Key is Key.F or Key.L))
+            {
+                FocusSearchBox();
                 e.Handled = true;
             }
         };
+    }
+
+    public void ToggleOrFocus()
+    {
+        if (WindowState == WindowState.Minimized || !IsVisible)
+        {
+            Show();
+            WindowState = WindowState.Normal;
+            Activate();
+            FocusSearchBox();
+        }
+        else
+        {
+            if (IsActive)
+            {
+                WindowState = WindowState.Minimized;
+            }
+            else
+            {
+                Activate();
+                FocusSearchBox();
+            }
+        }
+    }
+
+    public void FocusSearchBox()
+    {
+        var searchBox = this.FindControl<TextBox>("SearchInputBox");
+        searchBox?.Focus();
+        searchBox?.SelectAll();
     }
 
     private void FilterButton_Click(object? sender, RoutedEventArgs e)

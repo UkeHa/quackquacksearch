@@ -184,7 +184,17 @@ public sealed class SearchIndexEngine
                     if (!options.IncludeDirectories && entry.IsDirectory)
                         continue;
 
-                    if (SimdMatcher.Matches(entry.Name.AsSpan(), query.AsSpan(), hasWildcards))
+                    if (options.Fuzzy)
+                    {
+                        if (FuzzyMatcher.TryMatch(entry.Name.AsSpan(), query.AsSpan(), out double fuzzyScore))
+                        {
+                            long now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+                            long age = Math.Max(0, now - entry.ModifiedUnixSeconds);
+                            if (age < 86400 * 7) fuzzyScore += 20.0;
+                            list.Add((entry, fuzzyScore));
+                        }
+                    }
+                    else if (SimdMatcher.Matches(entry.Name.AsSpan(), query.AsSpan(), hasWildcards))
                     {
                         double score = ResultRanker.CalculateScore(entry.Name, query, entry.ModifiedUnixSeconds);
                         list.Add((entry, score));

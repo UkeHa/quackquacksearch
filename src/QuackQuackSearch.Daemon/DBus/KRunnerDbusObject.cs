@@ -33,14 +33,33 @@ public sealed class KRunnerDbusObject(SearchIndexEngine engine, QuackConfig conf
             return Task.FromResult(Array.Empty<(string, string, string, int, double, IDictionary<string, object>)>());
         }
 
+        bool forceFuzzy = false;
+        if (query.StartsWith('~'))
+        {
+            forceFuzzy = true;
+            query = query[1..].TrimStart();
+        }
+        else if (query.StartsWith(":f:", StringComparison.OrdinalIgnoreCase))
+        {
+            forceFuzzy = true;
+            query = query[3..].TrimStart();
+        }
+
         var options = new SearchOptions
         {
             MaxResults = _config.KRunner.MaxResults > 0 ? _config.KRunner.MaxResults : 20,
             IncludeHidden = _config.Indexing.IndexHiddenFiles,
-            IncludeDirectories = true
+            IncludeDirectories = true,
+            Fuzzy = forceFuzzy
         };
 
         var matches = _engine.Search(query, options);
+
+        // Fallback to fuzzy search if exact match gave zero results
+        if (matches.Count == 0 && !forceFuzzy && query.Length >= 3)
+        {
+            matches = _engine.Search(query, options with { Fuzzy = true });
+        }
 
         var results = matches.Select(m =>
         {

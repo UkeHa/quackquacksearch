@@ -107,11 +107,17 @@ public sealed class QuackDaemonService : IDaemonService, IDisposable
 
     public Task<SearchResultDto[]> SearchAsync(string query, int maxResults)
     {
+        return SearchWithOptionsAsync(query, maxResults, fuzzy: false);
+    }
+
+    public Task<SearchResultDto[]> SearchWithOptionsAsync(string query, int maxResults, bool fuzzy)
+    {
         var options = new SearchOptions
         {
             MaxResults = maxResults > 0 ? maxResults : 50,
             IncludeHidden = _config.Indexing.IndexHiddenFiles,
-            IncludeDirectories = true
+            IncludeDirectories = true,
+            Fuzzy = fuzzy
         };
 
         var results = _engine.Search(query, options);

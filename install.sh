@@ -103,10 +103,22 @@ Type=Application
 Categories=Utility;Core;Filesystem;
 Keywords=search;files;find;everything;
 StartupNotify=true
+X-KDE-Shortcuts=Meta+Shift+F
 EOF
 
 if command -v update-desktop-database >/dev/null 2>&1; then
     update-desktop-database "$DESKTOP_DIR" 2>/dev/null || true
+fi
+
+# 4b. Register global shortcut (Meta+Shift+F)
+echo "⌨️  Registering global hotkey (Meta+Shift+F)..."
+if command -v kwriteconfig6 >/dev/null 2>&1; then
+    kwriteconfig6 --file kglobalshortcutsrc --group "quackquacksearch-gui.desktop" --key "_k_friendly_name" "QuackQuackSearch" 2>/dev/null || true
+    kwriteconfig6 --file kglobalshortcutsrc --group "quackquacksearch-gui.desktop" --key "_launch" "Meta+Shift+F,none,Launch QuackQuackSearch" 2>/dev/null || true
+    kquitapp6 kglobalaccel 2>/dev/null || true
+elif command -v kwriteconfig5 >/dev/null 2>&1; then
+    kwriteconfig5 --file kglobalshortcutsrc --group "quackquacksearch-gui.desktop" --key "_k_friendly_name" "QuackQuackSearch" 2>/dev/null || true
+    kwriteconfig5 --file kglobalshortcutsrc --group "quackquacksearch-gui.desktop" --key "_launch" "Meta+Shift+F,none,Launch QuackQuackSearch" 2>/dev/null || true
 fi
 
 # 5. Install KDE KRunner plugin
@@ -186,8 +198,9 @@ fi
 
 echo "Quick Start:"
 echo "  • Check status:         qqs status"
-echo "  • Search files:         qqs search <filename>"
+echo "  • Search files:         qqs search <filename> [--fuzzy]"
 echo "  • Add folder:           qqs add /path/to/folder"
 echo "  • Open GUI:             qqs gui (or via app launcher)"
+echo "  • Global Hotkey:        Press Meta+Shift+F anytime to toggle GUI!"
 echo "  • KRunner (KDE):        Press Alt+Space and start typing!"
 echo ""

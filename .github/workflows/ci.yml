@@ -1,0 +1,30 @@
+name: CI
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build-and-test:
+    name: Build & Test (.NET 10)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 10
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+          dotnet-quality: 'preview'
+
+      - name: Restore Dependencies
+        run: dotnet restore QuackQuackSearch.slnx
+
+      - name: Build in Release Mode
+        run: dotnet build QuackQuackSearch.slnx --configuration Release --no-restore
+
+      - name: Run Unit Tests
+        run: dotnet test QuackQuackSearch.slnx --configuration Release --no-build --verbosity normal
