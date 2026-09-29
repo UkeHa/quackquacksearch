@@ -7,12 +7,27 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+XDG_DATA_HOME="${XDG_DATA_HOME:-$HOME/.local/share}"
+XDG_CONFIG_HOME="${XDG_CONFIG_HOME:-$HOME/.config}"
+XDG_CACHE_HOME="${XDG_CACHE_HOME:-$HOME/.cache}"
+XDG_STATE_HOME="${XDG_STATE_HOME:-$HOME/.local/state}"
+XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+
 PREFIX="${PREFIX:-$HOME/.local}"
 INSTALL_LIB="$PREFIX/lib/quackquacksearch"
 INSTALL_BIN="$PREFIX/bin"
-DESKTOP_DIR="$PREFIX/share/applications"
-KRUNNER_DIR="$HOME/.local/share/krunner/dbusplugins"
-SYSTEMD_USER_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
+
+if [[ "$PREFIX" == "$HOME/.local" ]]; then
+    DESKTOP_DIR="${XDG_DATA_HOME}/applications"
+    KRUNNER_DIR="${XDG_DATA_HOME}/krunner/dbusplugins"
+    ICON_DIR="${XDG_DATA_HOME}/icons/hicolor/512x512/apps"
+else
+    DESKTOP_DIR="$PREFIX/share/applications"
+    KRUNNER_DIR="$PREFIX/share/krunner/dbusplugins"
+    ICON_DIR="$PREFIX/share/icons/hicolor/512x512/apps"
+fi
+
+SYSTEMD_USER_DIR="${XDG_CONFIG_HOME}/systemd/user"
 START_SERVICE=true
 
 # Parse arguments
@@ -22,7 +37,15 @@ while [[ $# -gt 0 ]]; do
             PREFIX="$2"
             INSTALL_LIB="$PREFIX/lib/quackquacksearch"
             INSTALL_BIN="$PREFIX/bin"
-            DESKTOP_DIR="$PREFIX/share/applications"
+            if [[ "$PREFIX" == "$HOME/.local" ]]; then
+                DESKTOP_DIR="${XDG_DATA_HOME}/applications"
+                KRUNNER_DIR="${XDG_DATA_HOME}/krunner/dbusplugins"
+                ICON_DIR="${XDG_DATA_HOME}/icons/hicolor/512x512/apps"
+            else
+                DESKTOP_DIR="$PREFIX/share/applications"
+                KRUNNER_DIR="$PREFIX/share/krunner/dbusplugins"
+                ICON_DIR="$PREFIX/share/icons/hicolor/512x512/apps"
+            fi
             shift 2
             ;;
         --no-service)
@@ -88,16 +111,20 @@ ln -sf "$INSTALL_LIB/cli/QuackQuackSearch.Cli" "$INSTALL_BIN/qqs"
 ln -sf "$INSTALL_LIB/daemon/QuackQuackSearch.Daemon" "$INSTALL_BIN/quackquacksearch-daemon"
 ln -sf "$INSTALL_LIB/gui/QuackQuackSearch.Gui" "$INSTALL_BIN/quackquacksearch-gui"
 
-# 4. Install Desktop file for GUI
-echo "🖥️  Installing Desktop entry..."
-mkdir -p "$DESKTOP_DIR"
+# 4. Install Desktop file and icon for GUI
+echo "🖥️  Installing Desktop entry and application icon..."
+mkdir -p "$DESKTOP_DIR" "$ICON_DIR"
+if [ -f "$SCRIPT_DIR/qqs.png" ]; then
+    cp "$SCRIPT_DIR/qqs.png" "$ICON_DIR/quackquacksearch.png"
+fi
+
 cat << EOF > "$DESKTOP_DIR/quackquacksearch-gui.desktop"
 [Desktop Entry]
 Name=QuackQuackSearch
 GenericName=File Search
 Comment=Lightning-fast desktop file search
 Exec=$INSTALL_BIN/quackquacksearch-gui
-Icon=system-search
+Icon=quackquacksearch
 Terminal=false
 Type=Application
 Categories=Utility;Core;Filesystem;

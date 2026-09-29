@@ -6,12 +6,26 @@
 
 set -euo pipefail
 
+XDG_DATA_HOME="${XDG_DATA_HOME:-$HOME/.local/share}"
+XDG_CONFIG_HOME="${XDG_CONFIG_HOME:-$HOME/.config}"
+XDG_CACHE_HOME="${XDG_CACHE_HOME:-$HOME/.cache}"
+XDG_STATE_HOME="${XDG_STATE_HOME:-$HOME/.local/state}"
+
 PREFIX="${PREFIX:-$HOME/.local}"
 INSTALL_LIB="$PREFIX/lib/quackquacksearch"
 INSTALL_BIN="$PREFIX/bin"
-DESKTOP_DIR="$PREFIX/share/applications"
-KRUNNER_DIR="$HOME/.local/share/krunner/dbusplugins"
-SYSTEMD_USER_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
+
+if [[ "$PREFIX" == "$HOME/.local" ]]; then
+    DESKTOP_DIR="${XDG_DATA_HOME}/applications"
+    KRUNNER_DIR="${XDG_DATA_HOME}/krunner/dbusplugins"
+    ICON_DIR="${XDG_DATA_HOME}/icons/hicolor/512x512/apps"
+else
+    DESKTOP_DIR="$PREFIX/share/applications"
+    KRUNNER_DIR="$PREFIX/share/krunner/dbusplugins"
+    ICON_DIR="$PREFIX/share/icons/hicolor/512x512/apps"
+fi
+
+SYSTEMD_USER_DIR="${XDG_CONFIG_HOME}/systemd/user"
 PURGE_DATA=false
 
 # Parse arguments
@@ -21,7 +35,15 @@ while [[ $# -gt 0 ]]; do
             PREFIX="$2"
             INSTALL_LIB="$PREFIX/lib/quackquacksearch"
             INSTALL_BIN="$PREFIX/bin"
-            DESKTOP_DIR="$PREFIX/share/applications"
+            if [[ "$PREFIX" == "$HOME/.local" ]]; then
+                DESKTOP_DIR="${XDG_DATA_HOME}/applications"
+                KRUNNER_DIR="${XDG_DATA_HOME}/krunner/dbusplugins"
+                ICON_DIR="${XDG_DATA_HOME}/icons/hicolor/512x512/apps"
+            else
+                DESKTOP_DIR="$PREFIX/share/applications"
+                KRUNNER_DIR="$PREFIX/share/krunner/dbusplugins"
+                ICON_DIR="$PREFIX/share/icons/hicolor/512x512/apps"
+            fi
             shift 2
             ;;
         --purge)
@@ -94,20 +116,29 @@ if [ -f "$KRUNNER_DIR/quackquacksearch.desktop" ]; then
     echo "✓ Removed KDE KRunner plugin."
 fi
 
+# 4b. Remove icon
+if [ -f "$ICON_DIR/quackquacksearch.png" ]; then
+    rm -f "$ICON_DIR/quackquacksearch.png"
+    echo "✓ Removed application icon."
+fi
+
 # 5. Handle user data & cache
-CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/quackquacksearch"
-CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/quackquacksearch"
+CONFIG_DIR="${XDG_CONFIG_HOME}/quackquacksearch"
+CACHE_DIR="${XDG_CACHE_HOME}/quackquacksearch"
+STATE_DIR="${XDG_STATE_HOME}/quackquacksearch"
 
 if [ "$PURGE_DATA" = true ]; then
-    echo "⚠️  Purging configuration and index cache..."
+    echo "⚠️  Purging configuration, cache, and state..."
     rm -rf "$CONFIG_DIR"
     rm -rf "$CACHE_DIR"
-    echo "✓ Removed $CONFIG_DIR and $CACHE_DIR."
+    rm -rf "$STATE_DIR"
+    echo "✓ Removed $CONFIG_DIR, $CACHE_DIR, and $STATE_DIR."
 else
     echo ""
     echo "ℹ️  User configuration and index cache were preserved:"
     echo "   • Config: $CONFIG_DIR"
     echo "   • Cache:  $CACHE_DIR"
+    echo "   • State:  $STATE_DIR"
     echo "   (Run ./uninstall.sh --purge to remove them as well)"
 fi
 

@@ -10,29 +10,9 @@ public static class ConfigManager
         PropertyNameCaseInsensitive = true
     };
 
-    public static string GetConfigDirectory()
-    {
-        string? xdgConfig = Environment.GetEnvironmentVariable("XDG_CONFIG_HOME");
-        if (!string.IsNullOrWhiteSpace(xdgConfig))
-        {
-            return Path.Combine(xdgConfig, "quackquacksearch");
-        }
+    public static string GetConfigDirectory() => System.XdgDirectories.AppConfigDir;
 
-        string home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-        return Path.Combine(home, ".config", "quackquacksearch");
-    }
-
-    public static string GetCacheDirectory()
-    {
-        string? xdgCache = Environment.GetEnvironmentVariable("XDG_CACHE_HOME");
-        if (!string.IsNullOrWhiteSpace(xdgCache))
-        {
-            return Path.Combine(xdgCache, "quackquacksearch");
-        }
-
-        string home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-        return Path.Combine(home, ".cache", "quackquacksearch");
-    }
+    public static string GetCacheDirectory() => System.XdgDirectories.AppCacheDir;
 
     public static string GetConfigFilePath() => Path.Combine(GetConfigDirectory(), "config.json");
     public static string GetCacheIndexFilePath() => Path.Combine(GetCacheDirectory(), "index.cache");

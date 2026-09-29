@@ -34,7 +34,7 @@ jobs:
           dotnet publish src/QuackQuackSearch.Cli/QuackQuackSearch.Cli.csproj -c Release -r linux-x64 --self-contained false -o dist/x64/lib/cli --nologo -v q
           dotnet publish src/QuackQuackSearch.Daemon/QuackQuackSearch.Daemon.csproj -c Release -r linux-x64 --self-contained false -o dist/x64/lib/daemon --nologo -v q
           dotnet publish src/QuackQuackSearch.Gui/QuackQuackSearch.Gui.csproj -c Release -r linux-x64 --self-contained false -o dist/x64/lib/gui --nologo -v q
-          cp install.sh uninstall.sh README.md README-DE.md dist/x64/
+          cp install.sh uninstall.sh README.md README-DE.md CHANGELOG.md LICENSE qqs.png dist/x64/
           tar -czf quackquacksearch-linux-x64.tar.gz -C dist/x64 .
 
       # Build arm64 package
@@ -44,7 +44,7 @@ jobs:
           dotnet publish src/QuackQuackSearch.Cli/QuackQuackSearch.Cli.csproj -c Release -r linux-arm64 --self-contained false -o dist/arm64/lib/cli --nologo -v q
           dotnet publish src/QuackQuackSearch.Daemon/QuackQuackSearch.Daemon.csproj -c Release -r linux-arm64 --self-contained false -o dist/arm64/lib/daemon --nologo -v q
           dotnet publish src/QuackQuackSearch.Gui/QuackQuackSearch.Gui.csproj -c Release -r linux-arm64 --self-contained false -o dist/arm64/lib/gui --nologo -v q
-          cp install.sh uninstall.sh README.md README-DE.md dist/arm64/
+          cp install.sh uninstall.sh README.md README-DE.md CHANGELOG.md LICENSE qqs.png dist/arm64/
           tar -czf quackquacksearch-linux-arm64.tar.gz -C dist/arm64 .
 
       - name: Determine Version Tag
@@ -53,16 +53,51 @@ jobs:
           VERSION="v0.1.${{ github.run_number }}"
           echo "tag=${VERSION}" >> $GITHUB_OUTPUT
 
+      - name: Generate Changelog & Release Notes
+        run: |
+          PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+          echo "Previous tag: $PREV_TAG"
+
+          cat << 'EOF' > release_notes.md
+          ## 🦆 QuackQuackSearch ${{ steps.vars.outputs.tag }}
+
+          ### 📋 Commits & Changes
+          EOF
+
+          if [ -n "$PREV_TAG" ]; then
+            git log "${PREV_TAG}..HEAD" --pretty=format:"* %s ([%h](https://github.com/UkeHa/quackquacksearch/commit/%H))" --no-merges >> release_notes.md
+          else
+            git log --pretty=format:"* %s ([%h](https://github.com/UkeHa/quackquacksearch/commit/%H))" -n 25 --no-merges >> release_notes.md
+          fi
+
+          cat << 'EOF' >> release_notes.md
+
+          ---
+
+          ### 📦 Installation
+          - **Arch Linux / CachyOS / AUR:**
+            ```bash
+            cd packaging/arch/quackquacksearch-bin && makepkg -si
+            ```
+          - **Direct Script:**
+            ```bash
+            ./install.sh
+            ```
+          - Full history: [CHANGELOG.md](https://github.com/UkeHa/quackquacksearch/blob/main/CHANGELOG.md)
+          EOF
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.vars.outputs.tag }}
           name: "Release ${{ steps.vars.outputs.tag }}"
-          generate_release_notes: true
+          body_path: release_notes.md
+          generate_release_notes: false
           draft: false
           prerelease: false
           files: |
             quackquacksearch-linux-x64.tar.gz
             quackquacksearch-linux-arm64.tar.gz
+            CHANGELOG.md
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -14,8 +14,7 @@ public sealed class SingleInstanceIpc : IDisposable
     public SingleInstanceIpc(Action onTriggerAction)
     {
         _onTriggerAction = onTriggerAction;
-        string runtimeDir = Environment.GetEnvironmentVariable("XDG_RUNTIME_DIR") ?? Path.GetTempPath();
-        _socketPath = Path.Combine(runtimeDir, $"quackquacksearch-gui-{Environment.UserName}.sock");
+        _socketPath = Core.System.XdgDirectories.GetRuntimeSocketPath($"quackquacksearch-gui-{Environment.UserName}.sock");
     }
 
     /// <summary>

@@ -55,4 +55,22 @@ public class PersistenceAndMountTests
         // System should have at least root "/" or "/home"
         mounts.Should().Contain(m => m.MountPoint == "/" || m.MountPoint == "/home");
     }
+
+    [Fact]
+    public void XdgDirectories_ShouldProvideValidNonEmptyPaths()
+    {
+        XdgDirectories.ConfigHome.Should().NotBeNullOrWhiteSpace();
+        XdgDirectories.DataHome.Should().NotBeNullOrWhiteSpace();
+        XdgDirectories.CacheHome.Should().NotBeNullOrWhiteSpace();
+        XdgDirectories.RuntimeDir.Should().NotBeNullOrWhiteSpace();
+
+        XdgDirectories.AppConfigDir.Should().EndWith("quackquacksearch");
+        XdgDirectories.AppCacheDir.Should().EndWith("quackquacksearch");
+        XdgDirectories.AppDataDir.Should().EndWith("quackquacksearch");
+        XdgDirectories.KRunnerPluginsDir.Should().EndWith(Path.Combine("krunner", "dbusplugins"));
+        XdgDirectories.SystemdUserDir.Should().EndWith(Path.Combine("systemd", "user"));
+
+        string socket = XdgDirectories.GetRuntimeSocketPath("test.sock");
+        socket.Should().EndWith("test.sock");
+    }
 }

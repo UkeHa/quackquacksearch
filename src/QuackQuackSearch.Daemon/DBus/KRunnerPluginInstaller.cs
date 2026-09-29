@@ -4,12 +4,7 @@ public static class KRunnerPluginInstaller
 {
     public static string GetPluginDesktopPath()
     {
-        string? xdgData = Environment.GetEnvironmentVariable("XDG_DATA_HOME");
-        string baseDir = !string.IsNullOrWhiteSpace(xdgData)
-            ? Path.Combine(xdgData, "krunner", "dbusplugins")
-            : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".local", "share", "krunner", "dbusplugins");
-
-        return Path.Combine(baseDir, "quackquacksearch.desktop");
+        return Path.Combine(QuackQuackSearch.Core.System.XdgDirectories.KRunnerPluginsDir, "quackquacksearch.desktop");
     }
 
     public static void InstallDesktopFile()

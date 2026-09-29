@@ -551,8 +551,7 @@ public static class Program
     private static int HandleService(string[] args)
     {
         string sub = args.Length > 0 ? args[0].ToLowerInvariant() : "status";
-        string home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-        string systemdUserDir = Path.Combine(home, ".config", "systemd", "user");
+        string systemdUserDir = Core.System.XdgDirectories.SystemdUserDir;
         string serviceFile = Path.Combine(systemdUserDir, "quackquacksearch.service");
 
         if (sub == "install")

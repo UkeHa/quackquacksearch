@@ -59,11 +59,10 @@ public partial class App : Application
         }
         catch { }
 
-        // Fallback: inspect KDE Plasma configuration (~/.config/kdeglobals)
+        // Fallback: inspect KDE Plasma configuration ($XDG_CONFIG_HOME/kdeglobals)
         try
         {
-            string home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-            string kdeglobals = Path.Combine(home, ".config", "kdeglobals");
+            string kdeglobals = Path.Combine(QuackQuackSearch.Core.System.XdgDirectories.ConfigHome, "kdeglobals");
             if (File.Exists(kdeglobals))
             {
                 string text = File.ReadAllText(kdeglobals);
