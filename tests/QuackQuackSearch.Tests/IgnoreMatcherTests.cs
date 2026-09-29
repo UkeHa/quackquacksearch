@@ -59,4 +59,25 @@ public class IgnoreMatcherTests
         matcher.ShouldIgnorePath("/home/testuser/documents/file.txt", "file.txt", isDirectory: false).Should().BeFalse();
         matcher.ShouldIgnorePath("/home/testuser/secret_notes.txt", "secret_notes.txt", isDirectory: false).Should().BeFalse();
     }
+
+    [Theory]
+    [InlineData("/home/uke", "/home/uke/secret", true)]
+    [InlineData("/home/uke", "/home/uke/secret/password.txt", true)]
+    [InlineData("/home/uke", "secret", true)]
+    [InlineData("/home/uke", "secret/passwords.txt", true)]
+    [InlineData("/home/uke", "*.tmp", true)]
+    [InlineData("/home/uke", "/run/user/1000/kio-fuse-neinDd/smb/nas.local/serien", false)]
+    [InlineData("/home/uke", "/etc/shadow", false)]
+    [InlineData("/home/uke", "/home/uke", false)] // Root itself cannot be excluded
+    [InlineData("/home/uke", "../../outside", false)]
+    [InlineData("/home/uke", "", false)]
+    public void PathExclusionValidator_ShouldValidateCorrectly(string root, string pattern, bool expectedValid)
+    {
+        bool isValid = PathExclusionValidator.IsValid(root, pattern, out string? error);
+        isValid.Should().Be(expectedValid);
+        if (!expectedValid)
+        {
+            error.Should().NotBeNullOrWhiteSpace();
+        }
+    }
 }

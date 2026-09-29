@@ -290,6 +290,12 @@ public sealed class QuackDaemonService : IDaemonService, IDisposable
         var entry = FindEntry(rootPath);
         if (entry == null) return false;
 
+        if (!PathExclusionValidator.IsValid(entry.Path, excludePattern, out string? error))
+        {
+            Console.WriteLine($"[Daemon] Rejected exclude '{excludePattern}' for '{entry.Path}': {error}");
+            return false;
+        }
+
         entry.CustomExcludes ??= [];
         if (!entry.CustomExcludes.Contains(excludePattern, StringComparer.OrdinalIgnoreCase))
         {
@@ -350,7 +356,10 @@ public sealed class QuackDaemonService : IDaemonService, IDisposable
         var entry = FindEntry(rootPath);
         if (entry == null) return false;
 
-        entry.CustomExcludes = excludes.Where(e => !string.IsNullOrWhiteSpace(e)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        entry.CustomExcludes = excludes
+            .Where(e => !string.IsNullOrWhiteSpace(e) && PathExclusionValidator.IsValid(entry.Path, e, out _))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
         ConfigManager.Save(_config);
 
         _ignoreMatcher = CreateCombinedIgnoreMatcher(_config);

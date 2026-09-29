@@ -414,6 +414,12 @@ public static class Program
             string rootPath = args[1];
             string pattern = string.Join(" ", args[2..]);
 
+            if (!PathExclusionValidator.IsValid(rootPath, pattern, out string? validationError))
+            {
+                AnsiConsole.MarkupLine($"[bold red]Error:[/] {Markup.Escape(validationError ?? "Ungültiger Ausschluss.")}");
+                return 1;
+            }
+
             if (daemon != null)
             {
                 bool ok = await daemon.AddExcludeAsync(rootPath, pattern);

@@ -61,6 +61,11 @@ public sealed class IgnoreMatcher
             string trimmed = pattern.Trim();
             if (string.IsNullOrEmpty(trimmed)) continue;
 
+            if (rootPath != null && !PathExclusionValidator.IsValid(rootPath, trimmed, out _))
+            {
+                continue;
+            }
+
             // 1. Expand ~ to home directory
             if (trimmed.StartsWith("~/") || trimmed.StartsWith("~\\"))
             {

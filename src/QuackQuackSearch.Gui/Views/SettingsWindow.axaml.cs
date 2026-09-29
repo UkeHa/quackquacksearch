@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using Avalonia.Controls;
 using Avalonia.Platform.Storage;
 using QuackQuackSearch.Core.Config;
+using QuackQuackSearch.Core.Crawler;
 using QuackQuackSearch.Core.DBus;
 using Tmds.DBus;
 
@@ -27,12 +28,15 @@ public partial class SettingsWindow : Window
         var excludesListBox = this.FindControl<ListBox>("ExcludesListBox");
         var selectedPathLabel = this.FindControl<TextBlock>("SelectedPathLabel");
         var newExcludeTextBox = this.FindControl<TextBox>("NewExcludeTextBox");
+        var errorLabel = this.FindControl<TextBlock>("ExcludeErrorLabel");
 
         if (pathsListBox != null)
         {
             pathsListBox.ItemsSource = _paths;
             pathsListBox.SelectionChanged += (_, _) =>
             {
+                if (errorLabel != null) errorLabel.IsVisible = false;
+
                 var selected = pathsListBox.SelectedItem as PathConfigEntry;
                 _currentExcludes.Clear();
 
@@ -55,6 +59,14 @@ public partial class SettingsWindow : Window
             {
                 pathsListBox.SelectedIndex = 0;
             }
+        }
+
+        if (newExcludeTextBox != null)
+        {
+            newExcludeTextBox.TextChanged += (_, _) =>
+            {
+                if (errorLabel != null) errorLabel.IsVisible = false;
+            };
         }
 
         if (excludesListBox != null)
@@ -80,16 +92,7 @@ public partial class SettingsWindow : Window
             excludeFolderBtn.Click += async (_, _) =>
             {
                 if (pathsListBox?.SelectedItem is not PathConfigEntry selected) return;
-                var folders = await StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions
-                {
-                    Title = $"Unterordner zum Ausschließen aus '{selected.Path}' wählen",
-                    AllowMultiple = false
-                });
-
-                if (folders.Count > 0)
-                {
-                    await AddExcludeAsync(selected, folders[0].Path.LocalPath);
-                }
+                await PickSubfolderToExcludeAsync(selected);
             };
         }
 
@@ -100,10 +103,19 @@ public partial class SettingsWindow : Window
             {
                 if (pathsListBox?.SelectedItem is not PathConfigEntry selected) return;
                 string pattern = newExcludeTextBox?.Text?.Trim() ?? string.Empty;
-                if (!string.IsNullOrEmpty(pattern))
+
+                if (string.IsNullOrEmpty(pattern))
                 {
-                    await AddExcludeAsync(selected, pattern);
-                    if (newExcludeTextBox != null) newExcludeTextBox.Text = string.Empty;
+                    // Wenn der Text leer ist, öffne die "Unterordner wählen..."-Maske
+                    await PickSubfolderToExcludeAsync(selected);
+                }
+                else
+                {
+                    bool added = await AddExcludeAsync(selected, pattern);
+                    if (added && newExcludeTextBox != null)
+                    {
+                        newExcludeTextBox.Text = string.Empty;
+                    }
                 }
             };
         }
@@ -160,8 +172,25 @@ public partial class SettingsWindow : Window
         }
     }
 
-    private async Task AddExcludeAsync(PathConfigEntry selected, string pattern)
+    private async Task<bool> AddExcludeAsync(PathConfigEntry selected, string pattern)
     {
+        var errorLabel = this.FindControl<TextBlock>("ExcludeErrorLabel");
+
+        if (!PathExclusionValidator.IsValid(selected.Path, pattern, out string? error))
+        {
+            if (errorLabel != null)
+            {
+                errorLabel.Text = error ?? "Ungültiger Ausschluss.";
+                errorLabel.IsVisible = true;
+            }
+            return false;
+        }
+
+        if (errorLabel != null)
+        {
+            errorLabel.IsVisible = false;
+        }
+
         selected.CustomExcludes ??= [];
         if (!selected.CustomExcludes.Contains(pattern, StringComparer.OrdinalIgnoreCase))
         {
@@ -180,6 +209,33 @@ public partial class SettingsWindow : Window
                 }
             }
             catch { }
+        }
+
+        return true;
+    }
+
+    private async Task PickSubfolderToExcludeAsync(PathConfigEntry selected)
+    {
+        var errorLabel = this.FindControl<TextBlock>("ExcludeErrorLabel");
+        if (errorLabel != null) errorLabel.IsVisible = false;
+
+        IStorageFolder? startFolder = null;
+        try
+        {
+            startFolder = await StorageProvider.TryGetFolderFromPathAsync(selected.Path);
+        }
+        catch { }
+
+        var folders = await StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions
+        {
+            Title = $"Unterordner zum Ausschließen aus '{selected.Path}' wählen",
+            SuggestedStartLocation = startFolder,
+            AllowMultiple = false
+        });
+
+        if (folders.Count > 0)
+        {
+            await AddExcludeAsync(selected, folders[0].Path.LocalPath);
         }
     }
 
