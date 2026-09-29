@@ -200,10 +200,13 @@ The `qqs` command-line utility provides instant access to the search index and d
 
 | Command | Description |
 |---|---|
-| `qqs <query> [--exact]` | Search for files (fuzzy by default; use `--exact` for strict matching) |
+| `qqs <query> [--exact]` | Search for files (fuzzy by default; supports wildcards like `*emes`, `*.png`) |
 | `qqs status` | Display daemon status, indexed file count, RAM usage, and monitored paths |
-| `qqs add <path> [--network]` | Add a new local or network path to live indexing |
+| `qqs add <path> [--network] [-x <pat>]` | Add a path to live indexing (optionally with exclusions) |
 | `qqs remove <path>` | Remove a path from live indexing and immediately purge its entries |
+| `qqs exclude add <path> <pat>` | Exclude a subfolder or pattern from a monitored path (purges immediately) |
+| `qqs exclude remove <path> <pat>` | Remove an exclusion rule and re-indexes the excluded folder |
+| `qqs exclude list [path]` | List all configured exclusions per path |
 | `qqs rescan [path]` | Force a background re-index of a configured path |
 | `qqs mounts` | Inspect local and network mount points (`/proc/mounts`) |
 | `qqs benchmark [dir]` | Measure filesystem crawler speed and SIMD search throughput |
@@ -219,6 +222,15 @@ The `qqs` command-line utility provides instant access to the search index and d
 qqs invoice.pdf
 qqs memes
 qqs reprot
+
+# Prefix and suffix wildcard searches
+qqs "*emes"          # Finds 'memes', 'themes', 'cat_memes.png'
+qqs "*.png"           # Finds all PNG files
+
+# Exclude subfolder or sensitive file within a monitored path
+qqs exclude add /home/user /home/user/secret
+qqs exclude add /home/user secret/password.txt
+qqs exclude list /home/user
 
 # Exact substring search without fuzzy typo-matching
 qqs invoice.pdf --exact

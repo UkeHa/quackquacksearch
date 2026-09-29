@@ -29,7 +29,7 @@ public static class Program
 
         bool isSubcommand = firstArg switch
         {
-            "status" or "add" or "remove" or "rescan" or "benchmark" or
+            "status" or "add" or "remove" or "exclude" or "rescan" or "benchmark" or
             "mounts" or "config" or "service" or "hotkey" or "gui" => true,
             _ => false
         };
@@ -47,6 +47,7 @@ public static class Program
                 "status" => await HandleStatusAsync(),
                 "add" => await HandleAddAsync(args[1..]),
                 "remove" => await HandleRemoveAsync(args[1..]),
+                "exclude" => await HandleExcludeAsync(args[1..]),
                 "rescan" => await HandleRescanAsync(args[1..]),
                 "benchmark" => await HandleBenchmarkAsync(args[1..]),
                 "mounts" => HandleMounts(),
@@ -67,25 +68,29 @@ public static class Program
     private static void PrintHelp()
     {
         AnsiConsole.MarkupLine("[bold yellow]QuackQuackSearch (qqs)[/] - Lightning fast Linux file search");
-        AnsiConsole.MarkupLine("[grey]Usage: qqs <query> [[[grey]--exact[/]]][/]");
-        AnsiConsole.MarkupLine("       qqs <command> [[arguments]][/]\n");
+        AnsiConsole.MarkupLine("[grey]Usage: qqs <query> [[--exact]][/]");
+        AnsiConsole.MarkupLine("[grey]       qqs <command> [[arguments]][/]");
+        AnsiConsole.WriteLine();
         AnsiConsole.MarkupLine("[bold]Search (Default Action):[/]");
-        AnsiConsole.MarkupLine("  [green]qqs <query>[/]                 Searches files instantly with fuzzy matching");
-        AnsiConsole.MarkupLine("  [green]qqs <query> [[[grey]--exact[/]]][/]       Searches strictly by exact substring");
+        AnsiConsole.MarkupLine("  [green]qqs <query>[/]                                     Searches files instantly with fuzzy matching");
+        AnsiConsole.MarkupLine("  [green]qqs <query> --exact[/]                             Searches strictly by exact substring");
         AnsiConsole.WriteLine();
         AnsiConsole.MarkupLine("[bold]Daemon & Paths:[/]");
-        AnsiConsole.MarkupLine("  [green]qqs status[/]                  Displays running daemon status and monitored paths");
-        AnsiConsole.MarkupLine("  [green]qqs add <path> [[[grey]--network[/]]][/]   Adds path to live monitoring");
-        AnsiConsole.MarkupLine("  [green]qqs remove <path>[/]            Removes path from live monitoring");
-        AnsiConsole.MarkupLine("  [green]qqs rescan [[path]][/]            Forces background re-indexing of a path");
+        AnsiConsole.MarkupLine("  [green]qqs status[/]                                      Displays running daemon status and monitored paths");
+        AnsiConsole.MarkupLine("  [green]qqs add <path> [[--network]] [[-x <exclude>]][/]       Adds path to live monitoring (with optional exclusions)");
+        AnsiConsole.MarkupLine("  [green]qqs remove <path>[/]                                Removes path from live monitoring");
+        AnsiConsole.MarkupLine("  [green]qqs exclude add <path> <pattern>[/]                 Exclude subfolder or pattern from a monitored path");
+        AnsiConsole.MarkupLine("  [green]qqs exclude remove <path> <pat>[/]                  Remove exclusion pattern from path");
+        AnsiConsole.MarkupLine("  [green]qqs exclude list [[[grey]path[/]]][/]                             List exclusions for configured path(s)");
+        AnsiConsole.MarkupLine("  [green]qqs rescan [[path]][/]                                Forces background re-indexing of a path");
         AnsiConsole.WriteLine();
         AnsiConsole.MarkupLine("[bold]System & Tools:[/]");
-        AnsiConsole.MarkupLine("  [green]qqs benchmark [[directory]][/]    Runs crawler and SIMD search benchmark");
-        AnsiConsole.MarkupLine("  [green]qqs mounts[/]                    Lists detected local and network mounts");
-        AnsiConsole.MarkupLine("  [green]qqs config [[show|init]][/]        Inspects or initializes configuration");
-        AnsiConsole.MarkupLine("  [green]qqs service [[install|start|status]][/] Manages systemd --user service unit");
-        AnsiConsole.MarkupLine("  [green]qqs hotkey [[register|status]][/] Manages global GUI desktop hotkey (Meta+Shift+F)");
-        AnsiConsole.MarkupLine("  [green]qqs gui[/]                       Launches desktop graphical interface");
+        AnsiConsole.MarkupLine("  [green]qqs benchmark [[directory]][/]                    Runs crawler and SIMD search benchmark");
+        AnsiConsole.MarkupLine("  [green]qqs mounts[/]                                    Lists detected local and network mounts");
+        AnsiConsole.MarkupLine("  [green]qqs config [[show|init]][/]                        Inspects or initializes configuration");
+        AnsiConsole.MarkupLine("  [green]qqs service [[install|start|status]][/]         Manages systemd --user service unit");
+        AnsiConsole.MarkupLine("  [green]qqs hotkey [[register|status]][/]                 Manages global GUI desktop hotkey (Meta+Shift+F)");
+        AnsiConsole.MarkupLine("  [green]qqs gui[/]                                       Launches desktop graphical interface");
         AnsiConsole.WriteLine();
     }
 
@@ -238,14 +243,17 @@ public static class Program
         var pathTable = new Table().Border(TableBorder.Rounded);
         pathTable.AddColumn("Path");
         pathTable.AddColumn("Type");
+        pathTable.AddColumn("Excludes");
         pathTable.AddColumn("Status");
 
         foreach (var p in paths)
         {
             string statusColor = p.Status == "Active" ? "green" : (p.Status == "Scanning" ? "yellow" : "red");
+            string excludes = string.IsNullOrWhiteSpace(p.ExcludesCsv) ? "[grey]-[/]" : Markup.Escape(p.ExcludesCsv);
             pathTable.AddRow(
                 Markup.Escape(p.Path),
                 p.Type,
+                excludes,
                 $"[{statusColor}]{p.Status}[/]"
             );
         }
@@ -258,21 +266,50 @@ public static class Program
     {
         if (args.Length == 0)
         {
-            AnsiConsole.MarkupLine("[red]Usage: qqs add <path> [--network][/]");
+            AnsiConsole.MarkupLine("[red]Usage: qqs add <path> [--network] [-x|--exclude <exclude_pattern>][/]");
             return 1;
         }
 
-        string path = args[0];
-        bool isNetwork = args.Any(a => a.Equals("--network", StringComparison.OrdinalIgnoreCase));
-        string type = isNetwork ? "network" : "local";
+        string path = string.Empty;
+        bool isNetwork = false;
+        var excludes = new List<string>();
 
+        for (int i = 0; i < args.Length; i++)
+        {
+            if (args[i].Equals("--network", StringComparison.OrdinalIgnoreCase))
+            {
+                isNetwork = true;
+            }
+            else if ((args[i].Equals("--exclude", StringComparison.OrdinalIgnoreCase) || args[i].Equals("-x", StringComparison.OrdinalIgnoreCase)) && i + 1 < args.Length)
+            {
+                excludes.Add(args[++i]);
+            }
+            else if (string.IsNullOrEmpty(path))
+            {
+                path = args[i];
+            }
+        }
+
+        if (string.IsNullOrEmpty(path))
+        {
+            AnsiConsole.MarkupLine("[red]Please specify a path to add.[/]");
+            return 1;
+        }
+
+        string type = isNetwork ? "network" : "local";
         var daemon = await TryGetDaemonServiceAsync();
+
         if (daemon != null)
         {
             bool ok = await daemon.AddPathAsync(path, type);
             if (ok)
             {
                 AnsiConsole.MarkupLine($"[green]Successfully added '{path}' ({type}) to running daemon![/]");
+                foreach (var exc in excludes)
+                {
+                    await daemon.AddExcludeAsync(path, exc);
+                    AnsiConsole.MarkupLine($"  [grey]+ Excluded:[/] [yellow]{Markup.Escape(exc)}[/]");
+                }
                 return 0;
             }
             AnsiConsole.MarkupLine($"[red]Failed to add '{path}'. Path does not exist or invalid.[/]");
@@ -282,16 +319,185 @@ public static class Program
         // Add directly to config
         var config = ConfigManager.LoadOrCreateDefault();
         string fullPath = Path.GetFullPath(path);
-        if (config.Paths.Any(p => p.Path.Equals(fullPath, StringComparison.OrdinalIgnoreCase)))
+        var existing = config.Paths.FirstOrDefault(p => p.Path.Equals(fullPath, StringComparison.OrdinalIgnoreCase));
+        if (existing != null)
         {
             AnsiConsole.MarkupLine($"[yellow]Path is already configured:[/] {fullPath}");
+            foreach (var exc in excludes)
+            {
+                existing.CustomExcludes ??= [];
+                if (!existing.CustomExcludes.Contains(exc, StringComparer.OrdinalIgnoreCase))
+                {
+                    existing.CustomExcludes.Add(exc);
+                    AnsiConsole.MarkupLine($"  [grey]+ Excluded:[/] [yellow]{Markup.Escape(exc)}[/]");
+                }
+            }
+            ConfigManager.Save(config);
             return 0;
         }
 
-        config.Paths.Add(new PathConfigEntry { Path = fullPath, Type = type, Enabled = true });
+        config.Paths.Add(new PathConfigEntry
+        {
+            Path = fullPath,
+            Type = type,
+            Enabled = true,
+            CustomExcludes = excludes
+        });
         ConfigManager.Save(config);
         AnsiConsole.MarkupLine($"[green]Added '{fullPath}' to config.json. Start daemon to monitor.[/]");
         return 0;
+    }
+
+    private static async Task<int> HandleExcludeAsync(string[] args)
+    {
+        if (args.Length == 0 || args[0] is "-h" or "--help" or "help")
+        {
+            AnsiConsole.MarkupLine("[bold]Usage:[/] qqs exclude <add|remove|list> <path> [pattern...]");
+            AnsiConsole.MarkupLine("  [green]qqs exclude add <path> <pattern>[/]     Exclude a subfolder or pattern from a monitored path");
+            AnsiConsole.MarkupLine("  [green]qqs exclude remove <path> <pattern>[/]  Remove an exclusion pattern from a monitored path");
+            AnsiConsole.MarkupLine("  [green]qqs exclude list [[[grey]path[/]]][/]            List all exclusions or exclusions for a specific path");
+            return 0;
+        }
+
+        string action = args[0].ToLowerInvariant();
+        var daemon = await TryGetDaemonServiceAsync();
+
+        if (action == "list")
+        {
+            string? targetPath = args.Length > 1 ? args[1] : null;
+            if (daemon != null)
+            {
+                var paths = await daemon.ListPathsAsync();
+                var table = new Table().Border(TableBorder.Rounded);
+                table.AddColumn("Path");
+                table.AddColumn("Exclusions");
+
+                foreach (var p in paths)
+                {
+                    if (targetPath != null && !p.Path.TrimEnd('/').Equals(Path.GetFullPath(targetPath).TrimEnd('/'), StringComparison.OrdinalIgnoreCase))
+                        continue;
+
+                    string exc = string.IsNullOrWhiteSpace(p.ExcludesCsv) ? "[grey](none)[/]" : Markup.Escape(p.ExcludesCsv.Replace(";", "\n"));
+                    table.AddRow(Markup.Escape(p.Path), exc);
+                }
+                AnsiConsole.Write(table);
+                return 0;
+            }
+            else
+            {
+                var config = ConfigManager.LoadOrCreateDefault();
+                var table = new Table().Border(TableBorder.Rounded);
+                table.AddColumn("Path");
+                table.AddColumn("Exclusions");
+
+                foreach (var p in config.Paths)
+                {
+                    if (targetPath != null && !p.Path.TrimEnd('/').Equals(Path.GetFullPath(targetPath).TrimEnd('/'), StringComparison.OrdinalIgnoreCase))
+                        continue;
+
+                    string exc = (p.CustomExcludes == null || p.CustomExcludes.Count == 0) ? "[grey](none)[/]" : Markup.Escape(string.Join("\n", p.CustomExcludes));
+                    table.AddRow(Markup.Escape(p.Path), exc);
+                }
+                AnsiConsole.Write(table);
+                return 0;
+            }
+        }
+
+        if (action == "add")
+        {
+            if (args.Length < 3)
+            {
+                AnsiConsole.MarkupLine("[red]Usage: qqs exclude add <monitored-path> <pattern_or_subfolder>[/]");
+                return 1;
+            }
+
+            string rootPath = args[1];
+            string pattern = string.Join(" ", args[2..]);
+
+            if (daemon != null)
+            {
+                bool ok = await daemon.AddExcludeAsync(rootPath, pattern);
+                if (ok)
+                {
+                    AnsiConsole.MarkupLine($"[green]Successfully added exclusion '{pattern}' to '{rootPath}' (daemon updated & purged).[/]");
+                    return 0;
+                }
+                AnsiConsole.MarkupLine($"[red]Failed to add exclusion. Ensure '{rootPath}' is a monitored path.[/]");
+                return 1;
+            }
+            else
+            {
+                var config = ConfigManager.LoadOrCreateDefault();
+                string norm = Path.GetFullPath(rootPath).TrimEnd(Path.DirectorySeparatorChar);
+                var entry = config.Paths.FirstOrDefault(p => Path.GetFullPath(p.Path).TrimEnd(Path.DirectorySeparatorChar).Equals(norm, StringComparison.OrdinalIgnoreCase));
+                if (entry == null)
+                {
+                    AnsiConsole.MarkupLine($"[red]Path '{rootPath}' is not configured in config.json.[/]");
+                    return 1;
+                }
+
+                entry.CustomExcludes ??= [];
+                if (!entry.CustomExcludes.Contains(pattern, StringComparer.OrdinalIgnoreCase))
+                {
+                    entry.CustomExcludes.Add(pattern);
+                    ConfigManager.Save(config);
+                    AnsiConsole.MarkupLine($"[green]Added exclusion '{pattern}' to '{entry.Path}' in config.json.[/]");
+                }
+                else
+                {
+                    AnsiConsole.MarkupLine($"[yellow]Exclusion '{pattern}' is already present on '{entry.Path}'.[/]");
+                }
+                return 0;
+            }
+        }
+
+        if (action == "remove")
+        {
+            if (args.Length < 3)
+            {
+                AnsiConsole.MarkupLine("[red]Usage: qqs exclude remove <monitored-path> <pattern_or_subfolder>[/]");
+                return 1;
+            }
+
+            string rootPath = args[1];
+            string pattern = string.Join(" ", args[2..]);
+
+            if (daemon != null)
+            {
+                bool ok = await daemon.RemoveExcludeAsync(rootPath, pattern);
+                if (ok)
+                {
+                    AnsiConsole.MarkupLine($"[green]Successfully removed exclusion '{pattern}' from '{rootPath}'.[/]");
+                    return 0;
+                }
+                AnsiConsole.MarkupLine($"[red]Failed to remove exclusion. Pattern or path not found.[/]");
+                return 1;
+            }
+            else
+            {
+                var config = ConfigManager.LoadOrCreateDefault();
+                string norm = Path.GetFullPath(rootPath).TrimEnd(Path.DirectorySeparatorChar);
+                var entry = config.Paths.FirstOrDefault(p => Path.GetFullPath(p.Path).TrimEnd(Path.DirectorySeparatorChar).Equals(norm, StringComparison.OrdinalIgnoreCase));
+                if (entry == null || entry.CustomExcludes == null)
+                {
+                    AnsiConsole.MarkupLine($"[red]Path '{rootPath}' not found in config.json.[/]");
+                    return 1;
+                }
+
+                int removed = entry.CustomExcludes.RemoveAll(x => x.Equals(pattern, StringComparison.OrdinalIgnoreCase));
+                if (removed > 0)
+                {
+                    ConfigManager.Save(config);
+                    AnsiConsole.MarkupLine($"[green]Removed exclusion '{pattern}' from '{entry.Path}' in config.json.[/]");
+                    return 0;
+                }
+                AnsiConsole.MarkupLine($"[yellow]Exclusion '{pattern}' was not found in '{entry.Path}'.[/]");
+                return 1;
+            }
+        }
+
+        // If the first argument was actually a path, treat as "qqs exclude list <path>"
+        return await HandleExcludeAsync(["list", args[0]]);
     }
 
     private static async Task<int> HandleRemoveAsync(string[] args)

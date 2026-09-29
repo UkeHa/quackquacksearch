@@ -188,10 +188,13 @@ Das CLI-Tool `qqs` kommuniziert transparent mit dem laufenden Hintergrund-Daemon
 
 | Befehl | Beschreibung |
 |---|---|
-| `qqs <suchbegriff> [--exact]` | Sucht Dateien (standardmäßig mit Fuzzy-Suche; `--exact` für exaktes Matching) |
-| `qqs status` | Zeigt Daemon-Status, RAM-Verbrauch, Dateianzahl und Pfade |
-| `qqs add <pfad> [--network]` | Fügt einen neuen lokalen oder Netzwerk-Pfad zur Überwachung hinzu |
+| `qqs <suchbegriff> [--exact]` | Sucht Dateien (standardmäßig mit Fuzzy-Suche; unterstützt Wildcards wie `*emes`, `*.png`) |
+| `qqs status` | Zeigt Daemon-Status, RAM-Verbrauch, Dateianzahl, Pfade und Ausschlüsse |
+| `qqs add <pfad> [--network] [-x <muster>]` | Fügt Pfad zur Überwachung hinzu (optional mit Ausschlüssen) |
 | `qqs remove <pfad>` | Entfernt einen Pfad (entfernt Treffer sofort aus dem Index) |
+| `qqs exclude add <pfad> <muster>` | Schließt Unterordner oder Datei/Muster aus einem Pfad aus (sofortige Bereinigung) |
+| `qqs exclude remove <pfad> <muster>` | Entfernt Ausschlussregel und indexiert den Ordner wieder nach |
+| `qqs exclude list [pfad]` | Zeigt alle konfigurierten Ausschlüsse pro Pfad an |
 | `qqs rescan [pfad]` | Erzwingt einen Hintergrund-Neu-Scan eines Pfades |
 | `qqs mounts` | Scannt und listet alle lokalen und Netzwerk-Laufwerke (`/proc/mounts`) |
 | `qqs benchmark [ordner]` | Misst Crawler-Geschwindigkeit und SIMD-Suchdurchsatz |
@@ -207,6 +210,15 @@ Das CLI-Tool `qqs` kommuniziert transparent mit dem laufenden Hintergrund-Daemon
 qqs rechnung.pdf
 qqs memes
 qqs reprot
+
+# Prefix- und Suffix-Wildcard-Suchen
+qqs "*emes"          # Findet z. B. 'memes', 'themes', 'cat_memes.png'
+qqs "*.png"           # Findet alle PNG-Dateien
+
+# Unterordner oder sensible Datei aus überwachtem Pfad ausschließen
+qqs exclude add /home/user /home/user/secret
+qqs exclude add /home/user secret/password.txt
+qqs exclude list /home/user
 
 # Exakte Teilstring-Suche ohne Tippfehler-Korrektur
 qqs rechnung.pdf --exact

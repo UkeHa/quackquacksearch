@@ -14,7 +14,7 @@ public sealed class QuackDaemonService : IDaemonService, IDisposable
 {
     private readonly SearchIndexEngine _engine;
     private readonly QuackConfig _config;
-    private readonly IgnoreMatcher _ignoreMatcher;
+    private IgnoreMatcher _ignoreMatcher;
     private readonly LocalInotifyWatcher _inotifyWatcher;
     private readonly NetworkPollingScheduler _networkPoller;
     private readonly System.Timers.Timer _snapshotTimer;
@@ -29,7 +29,7 @@ public sealed class QuackDaemonService : IDaemonService, IDisposable
     {
         _config = ConfigManager.LoadOrCreateDefault();
         _engine = new SearchIndexEngine();
-        _ignoreMatcher = new IgnoreMatcher(_config.Indexing.GlobalExcludes);
+        _ignoreMatcher = CreateCombinedIgnoreMatcher(_config);
         _inotifyWatcher = new LocalInotifyWatcher(_engine, _ignoreMatcher);
         _networkPoller = new NetworkPollingScheduler(_engine, _ignoreMatcher);
 
@@ -41,6 +41,15 @@ public sealed class QuackDaemonService : IDaemonService, IDisposable
         _snapshotTimer.Elapsed += async (_, _) => await SaveSnapshotSafeAsync();
     }
 
+    private static IgnoreMatcher CreateCombinedIgnoreMatcher(QuackConfig config)
+    {
+        var pathExcludes = config.Paths
+            .Where(p => p.CustomExcludes != null && p.CustomExcludes.Count > 0)
+            .Select(p => (p.Path, (IEnumerable<string>)p.CustomExcludes));
+
+        return new IgnoreMatcher(config.Indexing.GlobalExcludes, pathExcludes);
+    }
+
     public async Task InitializeAsync(CancellationToken cancellationToken = default)
     {
         Console.WriteLine("[Daemon] Checking for cached index snapshot...");
@@ -49,6 +58,11 @@ public sealed class QuackDaemonService : IDaemonService, IDisposable
         if (loaded)
         {
             Console.WriteLine($"[Daemon] Restored {_engine.TotalFiles:N0} files from disk cache.");
+            int purged = _engine.PurgeIgnored(_ignoreMatcher);
+            if (purged > 0)
+            {
+                Console.WriteLine($"[Daemon] Purged {purged:N0} cached files matching active ignore rules.");
+            }
         }
         else
         {
@@ -255,11 +269,107 @@ public sealed class QuackDaemonService : IDaemonService, IDisposable
                 Path = p.Path,
                 Type = p.Type,
                 Enabled = p.Enabled,
-                Status = status
+                Status = status,
+                ExcludesCsv = string.Join(";", p.CustomExcludes ?? [])
             };
         }).ToArray();
 
         return Task.FromResult(infos);
+    }
+
+    private PathConfigEntry? FindEntry(string rootPath)
+    {
+        string normTrimmed = Path.GetFullPath(rootPath).TrimEnd(Path.DirectorySeparatorChar);
+        return _config.Paths.FirstOrDefault(p => Path.GetFullPath(p.Path).TrimEnd(Path.DirectorySeparatorChar).Equals(normTrimmed, StringComparison.OrdinalIgnoreCase));
+    }
+
+    public async Task<bool> AddExcludeAsync(string rootPath, string excludePattern)
+    {
+        if (string.IsNullOrWhiteSpace(excludePattern)) return false;
+
+        var entry = FindEntry(rootPath);
+        if (entry == null) return false;
+
+        entry.CustomExcludes ??= [];
+        if (!entry.CustomExcludes.Contains(excludePattern, StringComparer.OrdinalIgnoreCase))
+        {
+            entry.CustomExcludes.Add(excludePattern);
+            ConfigManager.Save(_config);
+
+            _ignoreMatcher = CreateCombinedIgnoreMatcher(_config);
+            int purged = _engine.PurgeIgnored(_ignoreMatcher);
+            Console.WriteLine($"[Daemon] Added exclude '{excludePattern}' to '{entry.Path}'. Purged {purged:N0} indexed entries.");
+
+            await SaveSnapshotSafeAsync();
+        }
+
+        return true;
+    }
+
+    public async Task<bool> RemoveExcludeAsync(string rootPath, string excludePattern)
+    {
+        if (string.IsNullOrWhiteSpace(excludePattern)) return false;
+
+        var entry = FindEntry(rootPath);
+        if (entry == null || entry.CustomExcludes == null) return false;
+
+        int removed = entry.CustomExcludes.RemoveAll(x => x.Equals(excludePattern, StringComparison.OrdinalIgnoreCase));
+        if (removed > 0)
+        {
+            ConfigManager.Save(_config);
+            _ignoreMatcher = CreateCombinedIgnoreMatcher(_config);
+
+            string entryPath = entry.Path;
+            // Re-crawl rootPath to restore files
+            _ = Task.Run(async () =>
+            {
+                var crawler = new FastFileSystemCrawler(_ignoreMatcher, _config.Indexing.MaxParallelThreads);
+                await crawler.CrawlAsync(entryPath, batch =>
+                {
+                    _engine.BulkAdd(batch);
+                    return Task.CompletedTask;
+                });
+                await SaveSnapshotSafeAsync();
+                Console.WriteLine($"[Daemon] Removed exclude '{excludePattern}' from '{entryPath}' and re-indexed path.");
+            });
+
+            return true;
+        }
+
+        return false;
+    }
+
+    public Task<string[]> GetPathExcludesAsync(string rootPath)
+    {
+        var entry = FindEntry(rootPath);
+        return Task.FromResult(entry?.CustomExcludes?.ToArray() ?? Array.Empty<string>());
+    }
+
+    public async Task<bool> SetPathExcludesAsync(string rootPath, string[] excludes)
+    {
+        var entry = FindEntry(rootPath);
+        if (entry == null) return false;
+
+        entry.CustomExcludes = excludes.Where(e => !string.IsNullOrWhiteSpace(e)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        ConfigManager.Save(_config);
+
+        _ignoreMatcher = CreateCombinedIgnoreMatcher(_config);
+        _engine.PurgeIgnored(_ignoreMatcher);
+
+        string entryPath = entry.Path;
+        _ = Task.Run(async () =>
+        {
+            var crawler = new FastFileSystemCrawler(_ignoreMatcher, _config.Indexing.MaxParallelThreads);
+            await crawler.CrawlAsync(entryPath, batch =>
+            {
+                _engine.BulkAdd(batch);
+                return Task.CompletedTask;
+            });
+            await SaveSnapshotSafeAsync();
+            Console.WriteLine($"[Daemon] Updated excludes for '{entryPath}' and refreshed index.");
+        });
+
+        return true;
     }
 
     public Task<DaemonStatusDto> GetStatusAsync()

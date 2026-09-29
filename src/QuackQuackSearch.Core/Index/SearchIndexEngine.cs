@@ -145,6 +145,27 @@ public sealed class SearchIndexEngine
     }
 
     /// <summary>
+    /// Removes any entries from the index that match the specified ignore matcher.
+    /// </summary>
+    public int PurgeIgnored(Crawler.IgnoreMatcher ignoreMatcher)
+    {
+        _lock.EnterWriteLock();
+        try
+        {
+            return _entries.RemoveAll(e =>
+            {
+                string dir = _directoryTable.ResolveFullPath(e.DirectoryId);
+                string fullPath = dir == "/" ? $"/{e.Name}" : $"{dir}/{e.Name}";
+                return ignoreMatcher.ShouldIgnorePath(fullPath, e.Name, e.IsDirectory);
+            });
+        }
+        finally
+        {
+            _lock.ExitWriteLock();
+        }
+    }
+
+    /// <summary>
     /// Executes a lightning-fast parallel search over all index entries.
     /// </summary>
     public IReadOnlyList<SearchResult> Search(string query, SearchOptions? options = null)

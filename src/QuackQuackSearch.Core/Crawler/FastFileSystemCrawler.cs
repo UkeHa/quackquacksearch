@@ -148,13 +148,15 @@ public sealed class FastFileSystemCrawler
                     {
                         if (cancellationToken.IsCancellationRequested) break;
 
+                        string itemFullPath = Path.Combine(currentDir, item.Name);
+                        if (_ignoreMatcher.ShouldIgnorePath(itemFullPath, item.Name, item.IsDirectory))
+                        {
+                            continue;
+                        }
+
                         if (item.IsDirectory)
                         {
-                            if (!_ignoreMatcher.ShouldIgnoreDirectoryName(item.Name))
-                            {
-                                string subDir = Path.Combine(currentDir, item.Name);
-                                dirQueue.Enqueue(subDir);
-                            }
+                            dirQueue.Enqueue(itemFullPath);
                         }
                         else
                         {

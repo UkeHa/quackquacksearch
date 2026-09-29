@@ -21,6 +21,7 @@ public struct PathInfoDto
     public string Type;
     public bool Enabled;
     public string Status;
+    public string ExcludesCsv;
 }
 
 [StructLayout(LayoutKind.Sequential)]
@@ -41,6 +42,10 @@ public interface IDaemonService : IDBusObject
     Task<bool> AddPathAsync(string path, string type);
     Task<bool> RemovePathAsync(string path);
     Task<bool> SetPathEnabledAsync(string path, bool enabled);
+    Task<bool> AddExcludeAsync(string rootPath, string excludePattern);
+    Task<bool> RemoveExcludeAsync(string rootPath, string excludePattern);
+    Task<string[]> GetPathExcludesAsync(string rootPath);
+    Task<bool> SetPathExcludesAsync(string rootPath, string[] excludes);
     Task<PathInfoDto[]> ListPathsAsync();
     Task<DaemonStatusDto> GetStatusAsync();
     Task TriggerRescanAsync(string path);

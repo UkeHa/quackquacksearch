@@ -72,7 +72,7 @@ public sealed class LocalInotifyWatcher : IDisposable
             string currentDir = dirQueue.Dequeue();
             string dirName = Path.GetFileName(currentDir);
 
-            if (!string.IsNullOrEmpty(dirName) && _ignoreMatcher.ShouldIgnoreDirectoryName(dirName))
+            if (!string.IsNullOrEmpty(dirName) && _ignoreMatcher.ShouldIgnorePath(currentDir, dirName, isDirectory: true))
             {
                 continue;
             }
@@ -230,7 +230,7 @@ public sealed class LocalInotifyWatcher : IDisposable
         bool isDir = (mask & (uint)InotifyNative.Mask.IN_ISDIR) != 0;
         string fullPath = string.IsNullOrEmpty(name) ? parentPath : Path.Combine(parentPath, name);
 
-        if (!string.IsNullOrEmpty(name) && isDir && _ignoreMatcher.ShouldIgnoreDirectoryName(name))
+        if (!string.IsNullOrEmpty(name) && _ignoreMatcher.ShouldIgnorePath(fullPath, name, isDir))
         {
             return;
         }

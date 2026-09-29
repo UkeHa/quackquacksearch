@@ -15,7 +15,19 @@ public static class SimdMatcher
 
         if (hasWildcards)
         {
-            return FileSystemName.MatchesSimpleExpression(query, candidate, ignoreCase: true);
+            if (FileSystemName.MatchesSimpleExpression(query, candidate, ignoreCase: true))
+            {
+                return true;
+            }
+
+            // Also check filename stem if candidate has an extension and query has no dot (e.g. "*emes" matches "cat_memes.png")
+            int dotIdx = candidate.LastIndexOf('.');
+            if (dotIdx > 0 && !query.Contains('.'))
+            {
+                return FileSystemName.MatchesSimpleExpression(query, candidate[..dotIdx], ignoreCase: true);
+            }
+
+            return false;
         }
 
         return candidate.Contains(query, StringComparison.OrdinalIgnoreCase);

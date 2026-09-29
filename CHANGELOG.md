@@ -10,6 +10,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Wildcard Prefix Search & Intelligent Ranking:**
+  - Full support for prefix wildcards (e.g. `*emes` matches directory `memes`, `themes`, and stem matches like `cat_memes.png`).
+  - Wildcard ranking calculates prefix/suffix closeness so closer matches (`memes` with 1 char prefix) rank higher than longer prefixes (`themes` with 2 char prefix).
+- **Subfolder & Path Exclusions Per Monitored Path:**
+  - Ability to exclude specific subfolders or files within monitored paths (e.g. index `/home/` while excluding `/home/secret/` or `/home/secret/password.txt`).
+  - Fast crawler skips excluded paths during recursive enumeration.
+  - Inotify watcher avoids watching and processing events for excluded paths.
+  - Real-time index purging via `PurgeIgnored` when exclusions are registered.
+  - CLI management via `qqs exclude <add|remove|list>` and `qqs add <path> -x <pattern>`.
+  - Daemon status (`qqs status`) displays active exclusions per monitored directory.
+  - GUI Settings dialog enhanced with split view to browse and manage exclusions per path using folder picker and pattern input.
 - **Full XDG Base Directory Specification Compliance:**
   - Implemented centralized `XdgDirectories` in `QuackQuackSearch.Core`.
   - Config directory honors `$XDG_CONFIG_HOME` (fallback: `~/.config/quackquacksearch`).

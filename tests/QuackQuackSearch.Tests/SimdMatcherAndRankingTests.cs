@@ -22,10 +22,26 @@ public class SimdMatcherAndRankingTests
     [InlineData("Program.cs", "Prog*.cs", true)]
     [InlineData("Program.cs", "P?ogram.cs", true)]
     [InlineData("Program.cs", "*.txt", false)]
+    [InlineData("memes", "*emes", true)]
+    [InlineData("themes", "*emes", true)]
+    [InlineData("cat_memes.png", "*emes", true)]
+    [InlineData("other_file.txt", "*emes", false)]
     public void WildcardMatching_ShouldWorkAsExpected(string candidate, string query, bool expected)
     {
         bool result = SimdMatcher.Matches(candidate.AsSpan(), query.AsSpan(), hasWildcards: true);
         result.Should().Be(expected);
+    }
+
+    [Fact]
+    public void WildcardRanking_ShorterPrefix_ShouldOutrankLongerPrefix()
+    {
+        uint now = (uint)DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+
+        // Query "*emes": "memes" has 1 char prefix ('m'), "themes" has 2 chars prefix ('th')
+        double memesScore = ResultRanker.CalculateScore("memes", "*emes", now);
+        double themesScore = ResultRanker.CalculateScore("themes", "*emes", now);
+
+        memesScore.Should().BeGreaterThan(themesScore);
     }
 
     [Fact]

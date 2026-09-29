@@ -11,6 +11,7 @@ public partial class SettingsWindow : Window
 {
     private readonly QuackConfig _config;
     private readonly ObservableCollection<PathConfigEntry> _paths = [];
+    private readonly ObservableCollection<string> _currentExcludes = [];
 
     public SettingsWindow()
     {
@@ -22,10 +23,43 @@ public partial class SettingsWindow : Window
             _paths.Add(p);
         }
 
-        var listBox = this.FindControl<ListBox>("PathsListBox");
-        if (listBox != null)
+        var pathsListBox = this.FindControl<ListBox>("PathsListBox");
+        var excludesListBox = this.FindControl<ListBox>("ExcludesListBox");
+        var selectedPathLabel = this.FindControl<TextBlock>("SelectedPathLabel");
+        var newExcludeTextBox = this.FindControl<TextBox>("NewExcludeTextBox");
+
+        if (pathsListBox != null)
         {
-            listBox.ItemsSource = _paths;
+            pathsListBox.ItemsSource = _paths;
+            pathsListBox.SelectionChanged += (_, _) =>
+            {
+                var selected = pathsListBox.SelectedItem as PathConfigEntry;
+                _currentExcludes.Clear();
+
+                if (selected != null)
+                {
+                    if (selectedPathLabel != null) selectedPathLabel.Text = selected.Path;
+                    selected.CustomExcludes ??= [];
+                    foreach (var exc in selected.CustomExcludes)
+                    {
+                        _currentExcludes.Add(exc);
+                    }
+                }
+                else
+                {
+                    if (selectedPathLabel != null) selectedPathLabel.Text = "Wähle links einen Pfad aus";
+                }
+            };
+
+            if (_paths.Count > 0)
+            {
+                pathsListBox.SelectedIndex = 0;
+            }
+        }
+
+        if (excludesListBox != null)
+        {
+            excludesListBox.ItemsSource = _currentExcludes;
         }
 
         var addBtn = this.FindControl<Button>("AddFolderButton");
@@ -38,6 +72,67 @@ public partial class SettingsWindow : Window
         if (removeBtn != null)
         {
             removeBtn.Click += async (_, _) => await RemoveSelectedFolderAsync();
+        }
+
+        var excludeFolderBtn = this.FindControl<Button>("ExcludeFolderPickerButton");
+        if (excludeFolderBtn != null)
+        {
+            excludeFolderBtn.Click += async (_, _) =>
+            {
+                if (pathsListBox?.SelectedItem is not PathConfigEntry selected) return;
+                var folders = await StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions
+                {
+                    Title = $"Unterordner zum Ausschließen aus '{selected.Path}' wählen",
+                    AllowMultiple = false
+                });
+
+                if (folders.Count > 0)
+                {
+                    await AddExcludeAsync(selected, folders[0].Path.LocalPath);
+                }
+            };
+        }
+
+        var addExcludeTextBtn = this.FindControl<Button>("AddExcludeTextButton");
+        if (addExcludeTextBtn != null)
+        {
+            addExcludeTextBtn.Click += async (_, _) =>
+            {
+                if (pathsListBox?.SelectedItem is not PathConfigEntry selected) return;
+                string pattern = newExcludeTextBox?.Text?.Trim() ?? string.Empty;
+                if (!string.IsNullOrEmpty(pattern))
+                {
+                    await AddExcludeAsync(selected, pattern);
+                    if (newExcludeTextBox != null) newExcludeTextBox.Text = string.Empty;
+                }
+            };
+        }
+
+        var removeExcludeBtn = this.FindControl<Button>("RemoveExcludeButton");
+        if (removeExcludeBtn != null)
+        {
+            removeExcludeBtn.Click += async (_, _) =>
+            {
+                if (pathsListBox?.SelectedItem is not PathConfigEntry selected) return;
+                if (excludesListBox?.SelectedItem is not string selectedExclude) return;
+
+                selected.CustomExcludes ??= [];
+                selected.CustomExcludes.Remove(selectedExclude);
+                _currentExcludes.Remove(selectedExclude);
+                ConfigManager.Save(_config);
+
+                try
+                {
+                    var conn = Connection.Session;
+                    await conn.ConnectAsync();
+                    if (await conn.IsServiceActiveAsync("org.quackquacksearch.Daemon"))
+                    {
+                        var daemon = conn.CreateProxy<IDaemonService>("org.quackquacksearch.Daemon", "/org/quackquacksearch/Daemon");
+                        await daemon.RemoveExcludeAsync(selected.Path, selectedExclude);
+                    }
+                }
+                catch { }
+            };
         }
 
         var closeBtn = this.FindControl<Button>("CloseButton");
@@ -62,6 +157,29 @@ public partial class SettingsWindow : Window
                 catch { }
                 Close();
             };
+        }
+    }
+
+    private async Task AddExcludeAsync(PathConfigEntry selected, string pattern)
+    {
+        selected.CustomExcludes ??= [];
+        if (!selected.CustomExcludes.Contains(pattern, StringComparer.OrdinalIgnoreCase))
+        {
+            selected.CustomExcludes.Add(pattern);
+            _currentExcludes.Add(pattern);
+            ConfigManager.Save(_config);
+
+            try
+            {
+                var conn = Connection.Session;
+                await conn.ConnectAsync();
+                if (await conn.IsServiceActiveAsync("org.quackquacksearch.Daemon"))
+                {
+                    var daemon = conn.CreateProxy<IDaemonService>("org.quackquacksearch.Daemon", "/org/quackquacksearch/Daemon");
+                    await daemon.AddExcludeAsync(selected.Path, pattern);
+                }
+            }
+            catch { }
         }
     }
 
