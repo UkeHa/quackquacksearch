@@ -1,0 +1,14 @@
+[Unit]
+Description=QuackQuackSearch Indexing Daemon
+Documentation=https://github.com/UkeHa/quackquacksearch
+After=default.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/quackquacksearch-daemon
+Restart=on-failure
+RestartSec=3s
+Nice=10
+
+[Install]
+WantedBy=default.target

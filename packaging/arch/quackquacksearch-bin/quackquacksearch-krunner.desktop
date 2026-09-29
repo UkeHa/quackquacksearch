@@ -1,0 +1,12 @@
+[Desktop Entry]
+Name=QuackQuackSearch
+Comment=Everything-like ultra fast file search
+Type=Service
+X-KDE-ServiceTypes=Plasma/Runner
+X-Plasma-Runner-Min-Letter-Count=2
+X-Plasma-Runner-Match-Regex=^.*$
+X-Plasma-Runner-Syntaxes=:q:
+X-Plasma-Runner-Syntax-Descriptions=Fast file search matching query
+X-Plasma-API=DBus2
+X-Plasma-DBusRunner-Service=org.quackquacksearch.Daemon
+X-Plasma-DBusRunner-Path=/quackquacksearch

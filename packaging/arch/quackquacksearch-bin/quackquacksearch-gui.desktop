@@ -1,0 +1,12 @@
+[Desktop Entry]
+Name=QuackQuackSearch
+GenericName=File Search
+Comment=Lightning-fast desktop file search
+Exec=/usr/bin/quackquacksearch-gui
+Icon=quackquacksearch
+Terminal=false
+Type=Application
+Categories=Utility;Core;Filesystem;
+Keywords=search;files;find;everything;
+StartupNotify=true
+X-KDE-Shortcuts=Meta+Shift+F

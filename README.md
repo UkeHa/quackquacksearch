@@ -110,6 +110,20 @@ sudo ./install.sh --prefix /usr/local
 ./install.sh --no-service
 ```
 
+### Arch Linux / CachyOS / Manjaro (PKGBUILD / pacman)
+
+Pre-configured PKGBUILDs and AUR templates are provided in [`packaging/arch/`](packaging/arch/):
+
+```bash
+# Install binary release via pacman (fastest, no .NET SDK required)
+cd packaging/arch/quackquacksearch-bin
+makepkg -si
+
+# Or compile latest git version from source
+cd packaging/arch/quackquacksearch-git
+makepkg -si
+```
+
 ---
 
 ## ⚡ KDE Plasma KRunner Integration

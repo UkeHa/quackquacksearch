@@ -1,0 +1,94 @@
+# Maintainer: Uke <https://github.com/UkeHa>
+pkgname=quackquacksearch-git
+pkgver=0.1.3.r0.g4861d88
+pkgrel=1
+pkgdesc="Lightning-fast Linux file search engine, daemon, GUI and KRunner plugin (VCS version)"
+arch=('x86_64' 'aarch64')
+url="https://github.com/UkeHa/quackquacksearch"
+license=('MIT')
+depends=(
+    'dotnet-runtime-10.0'
+    'fontconfig'
+    'freetype2'
+    'libx11'
+    'libice'
+    'libsm'
+    'libxcursor'
+    'libxext'
+    'libxi'
+    'libxrandr'
+    'libxrender'
+)
+makedepends=(
+    'dotnet-sdk-10.0'
+    'git'
+)
+optdepends=(
+    'krunner: Quick search integration from Alt+Space'
+    'plasma-workspace: KDE Plasma integration and global hotkeys'
+)
+provides=('quackquacksearch')
+conflicts=('quackquacksearch' 'quackquacksearch-bin')
+install=quackquacksearch.install
+
+source=("quackquacksearch::git+https://github.com/UkeHa/quackquacksearch.git")
+sha256sums=('SKIP')
+
+pkgver() {
+    cd "${srcdir}/quackquacksearch"
+    git describe --long --tags --abbrev=7 2>/dev/null | sed 's/^v//;s/\([^-]*-g\)/r\1/;s/-/./g' ||
+    printf "r%s.%s" "$(git rev-list --count HEAD)" "$(git rev-parse --short=7 HEAD)"
+}
+
+build() {
+    cd "${srcdir}/quackquacksearch"
+
+    local target_rid="linux-x64"
+    if [ "$CARCH" = "aarch64" ]; then
+        target_rid="linux-arm64"
+    fi
+
+    dotnet publish src/QuackQuackSearch.Cli/QuackQuackSearch.Cli.csproj \
+        -c Release -r "$target_rid" --self-contained false -o build/cli --nologo -v q
+    dotnet publish src/QuackQuackSearch.Daemon/QuackQuackSearch.Daemon.csproj \
+        -c Release -r "$target_rid" --self-contained false -o build/daemon --nologo -v q
+    dotnet publish src/QuackQuackSearch.Gui/QuackQuackSearch.Gui.csproj \
+        -c Release -r "$target_rid" --self-contained false -o build/gui --nologo -v q
+}
+
+package() {
+    cd "${srcdir}/quackquacksearch"
+
+    # 1. Install application libraries and binaries
+    install -d "${pkgdir}/usr/lib/quackquacksearch"
+    cp -r build/* "${pkgdir}/usr/lib/quackquacksearch/"
+
+    # Set execute permissions on main binaries
+    chmod 755 "${pkgdir}/usr/lib/quackquacksearch/cli/QuackQuackSearch.Cli"
+    chmod 755 "${pkgdir}/usr/lib/quackquacksearch/daemon/QuackQuackSearch.Daemon"
+    chmod 755 "${pkgdir}/usr/lib/quackquacksearch/gui/QuackQuackSearch.Gui"
+
+    # 2. Symlinks in /usr/bin
+    install -d "${pkgdir}/usr/bin"
+    ln -sf "/usr/lib/quackquacksearch/cli/QuackQuackSearch.Cli" "${pkgdir}/usr/bin/qqs"
+    ln -sf "/usr/lib/quackquacksearch/daemon/QuackQuackSearch.Daemon" "${pkgdir}/usr/bin/quackquacksearch-daemon"
+    ln -sf "/usr/lib/quackquacksearch/gui/QuackQuackSearch.Gui" "${pkgdir}/usr/bin/quackquacksearch-gui"
+
+    # 3. Desktop Application & KRunner plugin
+    install -Dm644 packaging/arch/quackquacksearch-bin/quackquacksearch-gui.desktop "${pkgdir}/usr/share/applications/quackquacksearch-gui.desktop"
+    install -Dm644 packaging/arch/quackquacksearch-bin/quackquacksearch-krunner.desktop "${pkgdir}/usr/share/krunner/dbusplugins/quackquacksearch.desktop"
+
+    # 4. Icon
+    install -Dm644 qqs.png "${pkgdir}/usr/share/icons/hicolor/512x512/apps/quackquacksearch.png"
+
+    # 5. Systemd User Service
+    install -Dm644 packaging/arch/quackquacksearch-bin/quackquacksearch.service "${pkgdir}/usr/lib/systemd/user/quackquacksearch.service"
+
+    # 6. License & Documentation
+    if [ -f "LICENSE" ]; then
+        install -Dm644 LICENSE "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE"
+    fi
+    if [ -f "README.md" ]; then
+        install -Dm644 README.md "${pkgdir}/usr/share/doc/${pkgname}/README.md"
+    fi
+}

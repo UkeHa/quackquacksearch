@@ -1,0 +1,24 @@
+post_install() {
+    echo ":: QuackQuackSearch has been installed successfully!"
+    echo "::"
+    echo ":: To enable and start the indexing daemon in your user session:"
+    echo "::   systemctl --user daemon-reload"
+    echo "::   systemctl --user enable --now quackquacksearch.service"
+    echo "::"
+    echo ":: Shortcuts & Integrations:"
+    echo "::   - CLI: 'qqs <query>'"
+    echo "::   - GUI: 'qqs gui' or via application menu"
+    echo "::   - Global hotkey: Meta+Shift+F"
+    echo "::   - KDE KRunner: Press Alt+Space and search directly"
+}
+
+post_upgrade() {
+    echo ":: Reloading user systemd daemon and restarting service if active..."
+    systemctl --user daemon-reload 2>/dev/null || true
+    systemctl --user try-restart quackquacksearch.service 2>/dev/null || true
+}
+
+pre_remove() {
+    systemctl --user stop quackquacksearch.service 2>/dev/null || true
+    systemctl --user disable quackquacksearch.service 2>/dev/null || true
+}
