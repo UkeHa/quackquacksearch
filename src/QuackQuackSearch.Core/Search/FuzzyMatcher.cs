@@ -27,7 +27,7 @@ public static class FuzzyMatcher
         // 2. Exact prefix match
         if (target.StartsWith(query, StringComparison.OrdinalIgnoreCase))
         {
-            score = 900.0 + Math.Max(0, 100.0 - (target.Length - query.Length));
+            score = 950.0 + Math.Max(0, 50.0 - (target.Length - query.Length));
             return true;
         }
 
@@ -35,27 +35,85 @@ public static class FuzzyMatcher
         int substrIdx = target.IndexOf(query, StringComparison.OrdinalIgnoreCase);
         if (substrIdx >= 0)
         {
-            double baseScore = 750.0;
+            double baseScore = 800.0;
             if (substrIdx > 0 && IsWordBoundary(target[substrIdx - 1]))
             {
-                baseScore += 100.0;
+                baseScore += 80.0;
             }
-            score = baseScore + Math.Max(0, 80.0 - (target.Length - query.Length));
+            score = baseScore + Math.Max(0, 50.0 - (target.Length - query.Length));
             return true;
         }
 
-        // 4. Subsequence fuzzy match (like fzf / fzy)
+        // 4. Close Typo match on full filename / stem (e.g. "meems" -> "memes", "reprot" -> "report")
+        if (query.Length >= 3 && TryStemTypoMatch(target, query, out double stemTypoScore))
+        {
+            score = stemTypoScore;
+            return true;
+        }
+
+        // 5. Subsequence fuzzy match (like fzf / fzy)
         if (TrySubsequenceMatch(target, query, out double subseqScore))
         {
             score = subseqScore;
             return true;
         }
 
-        // 5. Typo tolerance (Levenshtein / Edit distance) for queries of reasonable length
-        if (query.Length >= 4 && TryTypoMatch(target, query, out double typoScore))
+        // 6. Typo match on word parts (e.g. "reprot" inside "annual_report_2026.pdf")
+        if (query.Length >= 4 && TryWordTypoMatch(target, query, out double wordTypoScore))
         {
-            score = typoScore;
+            score = wordTypoScore;
             return true;
+        }
+
+        return false;
+    }
+
+    private static bool TryStemTypoMatch(ReadOnlySpan<char> target, ReadOnlySpan<char> query, out double score)
+    {
+        score = 0.0;
+        int dotIdx = target.LastIndexOf('.');
+        ReadOnlySpan<char> nameStem = dotIdx > 0 ? target[..dotIdx] : target;
+
+        int maxAllowedDist = query.Length >= 5 ? 2 : 1;
+        if (Math.Abs(nameStem.Length - query.Length) <= maxAllowedDist)
+        {
+            int dist = DamerauLevenshteinDistance(nameStem, query, maxAllowedDist);
+            if (dist <= maxAllowedDist)
+            {
+                // Direct typo match on the whole stem gets high score (800-850 for dist 1, 600-700 for dist 2)
+                score = (dist == 1 ? 850.0 : 700.0) - (Math.Abs(nameStem.Length - query.Length) * 15.0);
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static bool TryWordTypoMatch(ReadOnlySpan<char> target, ReadOnlySpan<char> query, out double score)
+    {
+        score = 0.0;
+        int maxAllowedDist = query.Length >= 5 ? 2 : 1;
+
+        int start = 0;
+        for (int i = 0; i <= target.Length; i++)
+        {
+            if (i == target.Length || IsWordBoundary(target[i]))
+            {
+                if (i > start)
+                {
+                    var word = target[start..i];
+                    if (Math.Abs(word.Length - query.Length) <= maxAllowedDist)
+                    {
+                        int dist = DamerauLevenshteinDistance(word, query, maxAllowedDist);
+                        if (dist <= maxAllowedDist)
+                        {
+                            score = (dist == 1 ? 650.0 : 500.0) - (Math.Abs(word.Length - query.Length) * 15.0);
+                            return true;
+                        }
+                    }
+                }
+                start = i + 1;
+            }
         }
 
         return false;
@@ -68,8 +126,9 @@ public static class FuzzyMatcher
         int qIdx = 0;
 
         int consecutive = 0;
-        double currentScore = 150.0;
+        double currentScore = 100.0;
         int firstMatchIndex = -1;
+        int boundaryMatches = 0;
 
         while (tIdx < target.Length && qIdx < query.Length)
         {
@@ -80,20 +139,22 @@ public static class FuzzyMatcher
             {
                 if (firstMatchIndex < 0) firstMatchIndex = tIdx;
 
-                currentScore += 30.0;
+                currentScore += 20.0;
 
                 // Consecutive match bonus
                 consecutive++;
-                currentScore += consecutive * 15.0;
+                currentScore += consecutive * 10.0;
 
                 // Word boundary bonus
                 if (tIdx == 0)
                 {
-                    currentScore += 80.0;
+                    boundaryMatches++;
+                    currentScore += 70.0;
                 }
                 else if (IsWordBoundary(target[tIdx - 1]) || (char.IsUpper(target[tIdx]) && char.IsLower(target[tIdx - 1])))
                 {
-                    currentScore += 60.0;
+                    boundaryMatches++;
+                    currentScore += 50.0;
                 }
 
                 qIdx++;
@@ -108,65 +169,24 @@ public static class FuzzyMatcher
 
         if (qIdx == query.Length)
         {
-            // Matched all query characters in sequence
             int spanLength = tIdx - firstMatchIndex;
-            // Compactness penalty: matches spread over a wide distance get penalized
-            int spread = Math.Max(0, spanLength - query.Length);
-            currentScore -= spread * 4.0;
+            double compactness = (double)query.Length / Math.Max(1, spanLength);
 
-            // Target length penalty
+            // Scale score heavily by compactness
+            currentScore *= Math.Clamp(compactness, 0.3, 1.0);
+
+            // Penalty for excess filename length
             int extraLen = Math.Max(0, target.Length - query.Length);
-            currentScore -= extraLen * 1.5;
+            currentScore -= extraLen * 2.0;
 
-            score = Math.Max(50.0, currentScore);
+            // An acronym matching word boundaries gets a substantial boost
+            if (boundaryMatches >= query.Length)
+            {
+                currentScore += 150.0;
+            }
+
+            score = Math.Max(30.0, currentScore);
             return true;
-        }
-
-        return false;
-    }
-
-    private static bool TryTypoMatch(ReadOnlySpan<char> target, ReadOnlySpan<char> query, out double score)
-    {
-        score = 0.0;
-
-        // Check distance against filename without extension or whole name
-        int dotIdx = target.LastIndexOf('.');
-        ReadOnlySpan<char> nameStem = dotIdx > 0 ? target[..dotIdx] : target;
-
-        int maxAllowedDist = query.Length >= 5 ? 2 : 1;
-
-        // Compare against stem or words separated by delimiters
-        if (Math.Abs(nameStem.Length - query.Length) <= maxAllowedDist)
-        {
-            int dist = DamerauLevenshteinDistance(nameStem, query, maxAllowedDist);
-            if (dist <= maxAllowedDist)
-            {
-                score = 300.0 - (dist * 75.0);
-                return true;
-            }
-        }
-
-        // Check word parts (e.g. "quack_search" -> check "search" against "serach")
-        int start = 0;
-        for (int i = 0; i <= target.Length; i++)
-        {
-            if (i == target.Length || IsWordBoundary(target[i]))
-            {
-                if (i > start)
-                {
-                    var word = target[start..i];
-                    if (Math.Abs(word.Length - query.Length) <= maxAllowedDist)
-                    {
-                        int dist = DamerauLevenshteinDistance(word, query, maxAllowedDist);
-                        if (dist <= maxAllowedDist)
-                        {
-                            score = 250.0 - (dist * 70.0);
-                            return true;
-                        }
-                    }
-                }
-                start = i + 1;
-            }
         }
 
         return false;

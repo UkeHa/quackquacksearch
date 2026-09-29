@@ -30,7 +30,16 @@ public class FuzzyMatcherTests
         // "reprot" -> "report.pdf" (transposition/edit distance 1)
         bool matched = FuzzyMatcher.TryMatch("report.pdf".AsSpan(), "reprot".AsSpan(), out double score);
         matched.Should().BeTrue();
-        score.Should().BeGreaterThan(50.0);
+        score.Should().BeGreaterThan(700.0);
+
+        // "meems" -> "Memes" (transposition of e and m)
+        bool matchedMemes = FuzzyMatcher.TryMatch("Memes".AsSpan(), "meems".AsSpan(), out double memesScore);
+        matchedMemes.Should().BeTrue();
+        memesScore.Should().BeGreaterThan(750.0);
+
+        // Loose subsequence "meems" in "MaterialXGenMsl.dll" must score much lower
+        FuzzyMatcher.TryMatch("MaterialXGenMsl.dll".AsSpan(), "meems".AsSpan(), out double looseScore);
+        memesScore.Should().BeGreaterThan(looseScore);
 
         // "serach" -> "search_index.cs"
         bool matched2 = FuzzyMatcher.TryMatch("search_index.cs".AsSpan(), "serach".AsSpan(), out double score2);
