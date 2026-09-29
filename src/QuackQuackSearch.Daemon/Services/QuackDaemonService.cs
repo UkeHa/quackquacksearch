@@ -107,7 +107,7 @@ public sealed class QuackDaemonService : IDaemonService, IDisposable
 
     public Task<SearchResultDto[]> SearchAsync(string query, int maxResults)
     {
-        return SearchWithOptionsAsync(query, maxResults, fuzzy: false);
+        return SearchWithOptionsAsync(query, maxResults, fuzzy: true);
     }
 
     public Task<SearchResultDto[]> SearchWithOptionsAsync(string query, int maxResults, bool fuzzy)

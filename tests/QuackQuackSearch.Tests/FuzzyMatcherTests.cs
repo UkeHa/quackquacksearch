@@ -77,11 +77,26 @@ public class FuzzyMatcherTests
         // Fuzzy search for "qqs" should find "QuackQuackSearch.cs"
         var fuzzyResults = engine.Search("qqs", new SearchOptions { Fuzzy = true });
         fuzzyResults.Should().HaveCount(1);
-        fuzzyResults[0].FileName.Should().Be("QuackQuackSearch.cs");
+        // Default search options should have Fuzzy=true
+        var defaultResults = engine.Search("qqs");
+        defaultResults.Should().HaveCount(1);
+        defaultResults[0].FileName.Should().Be("QuackQuackSearch.cs");
 
         // Fuzzy search for "reprot" should find "annual_report.pdf"
         var typoResults = engine.Search("reprot", new SearchOptions { Fuzzy = true });
         typoResults.Should().HaveCount(1);
         typoResults[0].FileName.Should().Be("annual_report.pdf");
+    }
+
+    [Fact]
+    public void TypoMatching_ShouldNotMatchConflictingDigits()
+    {
+        // "file2" must not match "file1.txt" as a typo
+        bool matched = FuzzyMatcher.TryMatch("file1.txt".AsSpan(), "file2".AsSpan(), out _);
+        matched.Should().BeFalse();
+
+        // But "file1" matches "file1.txt"
+        bool matchedSame = FuzzyMatcher.TryMatch("file1.txt".AsSpan(), "file1".AsSpan(), out _);
+        matchedSame.Should().BeTrue();
     }
 }

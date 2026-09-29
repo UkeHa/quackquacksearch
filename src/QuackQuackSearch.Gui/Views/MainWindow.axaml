@@ -13,7 +13,7 @@
 
         <!-- Top Search Bar -->
         <Border Grid.Row="0" Padding="12,12,12,6" Background="{DynamicResource SystemChromeLowColor}">
-            <Grid ColumnDefinitions="*,Auto,Auto,Auto">
+            <Grid ColumnDefinitions="*,Auto,Auto">
                 <TextBox Grid.Column="0"
                          Name="SearchInputBox"
                          Text="{Binding SearchText, Mode=TwoWay}"
@@ -31,15 +31,7 @@
                         ToolTip.Tip="Suche leeren"
                         CornerRadius="6" />
 
-                <ToggleButton Grid.Column="2"
-                              Content="⚡ Fuzzy"
-                              IsChecked="{Binding IsFuzzy, Mode=TwoWay}"
-                              Margin="6,0,0,0"
-                              Padding="12,8"
-                              ToolTip.Tip="Fuzzy-Suche: Subsequenz-Matching &amp; Tippfehler-Toleranz"
-                              CornerRadius="6" />
-
-                <Button Grid.Column="3"
+                <Button Grid.Column="2"
                         Content="⚙️ Pfade"
                         Name="SettingsButton"
                         Margin="6,0,0,0"

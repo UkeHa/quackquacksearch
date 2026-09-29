@@ -14,5 +14,5 @@ public sealed record SearchOptions(
     bool IncludeDirectories = true,
     bool IncludeHidden = false,
     bool SearchInPath = false,
-    bool Fuzzy = false
+    bool Fuzzy = true
 );

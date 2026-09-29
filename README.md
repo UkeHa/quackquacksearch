@@ -28,7 +28,7 @@ QuackQuackSearch is a lightweight, ultra-fast file indexer and search service fo
 - 🌐 **Network Mount Support:** Dedicated polling scheduler with configurable intervals and IO timeouts for NFS, CIFS/Samba, and SSHFS shares.
 - ⌨️ **Global GUI Hotkey (`Meta+Shift+F`):** Single-Instance window toggle: instantly summon or minimize the desktop search from anywhere.
 - 🔌 **Native KDE KRunner Integration:** Search instantly from `Alt+Space` / `Alt+F2` over session D-Bus (`org.kde.krunner1`).
-- 🖥️ **Modern Desktop GUI:** Built with Avalonia UI 11, featuring live search-as-you-type, fuzzy toggle, virtualized high-performance DataGrid, category filter chips, and automatic KDE BreezeDark/Light theme sync.
+- 🖥️ **Modern Desktop GUI:** Built with Avalonia UI 11, featuring live search-as-you-type with fuzzy search by default, virtualized high-performance DataGrid, category filter chips, and automatic KDE BreezeDark/Light theme sync.
 - ⚙️ **Background D-Bus Daemon:** Runs transparently as a systemd user service with fast snapshot persistence on shutdown.
 - 💻 **Powerful CLI (`qqs`):** Full control over searches, live monitoring, mount detection, and crawler/search benchmarks.
 - 🔄 **Automated CI/CD & Releases:** Continuous integration and automated GitHub Releases on every push to `main`.
@@ -182,11 +182,11 @@ X-Plasma-DBusRunner-Path=/quackquacksearch
 
 ## 💻 CLI Reference (`qqs`)
 
-The `qqs` command-line utility provides instant access to the search index and daemon management. If the daemon is temporarily offline, `qqs search` gracefully falls back to a fast direct local directory scan.
+The `qqs` command-line utility provides instant access to the search index and daemon management. If the daemon is temporarily offline, `qqs <query>` gracefully falls back to a fast direct local directory scan.
 
 | Command | Description |
 |---|---|
-| `qqs search <query> [--fuzzy]` | Search for files by substring or extension (with optional fuzzy matching) |
+| `qqs <query> [--exact]` | Search for files (fuzzy by default; use `--exact` for strict matching) |
 | `qqs status` | Display daemon status, indexed file count, RAM usage, and monitored paths |
 | `qqs add <path> [--network]` | Add a new local or network path to live indexing |
 | `qqs remove <path>` | Remove a path from live indexing and immediately purge its entries |
@@ -201,12 +201,13 @@ The `qqs` command-line utility provides instant access to the search index and d
 ### Examples
 
 ```bash
-# Search for invoices (exact or substring)
-qqs search invoice.pdf
+# Search directly for files (fuzzy search active by default)
+qqs invoice.pdf
+qqs memes
+qqs reprot
 
-# Fuzzy search (typo tolerance & abbreviation matching like 'qqs' -> 'QuackQuackSearch')
-qqs search qqs --fuzzy
-qqs search reprot --fuzzy
+# Exact substring search without fuzzy typo-matching
+qqs invoice.pdf --exact
 
 # Check index statistics
 qqs status
@@ -234,7 +235,7 @@ qqs benchmark .
 The GUI application (`quackquacksearch-gui` or `qqs gui`) delivers the classic "Everything" experience on Linux:
 
 - **Search-As-You-Type:** Instantaneous result updates with debounced input.
-- **⚡ Fuzzy Search Toggle:** Click `⚡ Fuzzy` in the search bar to toggle subsequence abbreviation matching and typo tolerance.
+- **⚡ Built-in Fuzzy Search:** Subsequence abbreviation matching and typo tolerance enabled by default.
 - **Filter Chips:** Rapidly restrict searches to *Documents*, *Images*, *Audio*, *Video*, *Archives*, or *Code*.
 - **Virtualized DataGrid:** Fluid scrolling with zero lag across tens of thousands of search hits.
 - **Single-Instance IPC & Global Hotkey:**

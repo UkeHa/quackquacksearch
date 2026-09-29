@@ -25,13 +25,25 @@ public static class Program
             return 0;
         }
 
-        string command = args[0].ToLowerInvariant();
+        string firstArg = args[0].ToLowerInvariant();
+
+        bool isSubcommand = firstArg switch
+        {
+            "status" or "add" or "remove" or "rescan" or "benchmark" or
+            "mounts" or "config" or "service" or "hotkey" or "gui" => true,
+            _ => false
+        };
 
         try
         {
-            return command switch
+            if (!isSubcommand)
             {
-                "search" => await HandleSearchAsync(args[1..]),
+                string[] searchArgs = firstArg == "search" ? args[1..] : args;
+                return await HandleSearchAsync(searchArgs);
+            }
+
+            return firstArg switch
+            {
                 "status" => await HandleStatusAsync(),
                 "add" => await HandleAddAsync(args[1..]),
                 "remove" => await HandleRemoveAsync(args[1..]),
@@ -42,7 +54,7 @@ public static class Program
                 "service" => HandleService(args[1..]),
                 "hotkey" => HandleHotkey(args[1..]),
                 "gui" => HandleGui(args[1..]),
-                _ => HandleUnknownCommand(command)
+                _ => HandleUnknownCommand(firstArg)
             };
         }
         catch (Exception ex)
@@ -55,15 +67,19 @@ public static class Program
     private static void PrintHelp()
     {
         AnsiConsole.MarkupLine("[bold yellow]QuackQuackSearch (qqs)[/] - Lightning fast Linux file search");
-        AnsiConsole.MarkupLine("[grey]Usage: qqs <command> [[arguments]][/]\n");
-        AnsiConsole.MarkupLine("[bold]Search & Status:[/]");
-        AnsiConsole.MarkupLine("  [green]qqs search <query> [[[grey]--fuzzy[/]]][/] Searches via running daemon (or local fallback)");
-        AnsiConsole.MarkupLine("  [green]qqs status[/]                   Displays running daemon status and monitored paths");
+        AnsiConsole.MarkupLine("[grey]Usage: qqs <query> [[[grey]--exact[/]]][/]");
+        AnsiConsole.MarkupLine("       qqs <command> [[arguments]][/]\n");
+        AnsiConsole.MarkupLine("[bold]Search (Default Action):[/]");
+        AnsiConsole.MarkupLine("  [green]qqs <query>[/]                 Searches files instantly with fuzzy matching");
+        AnsiConsole.MarkupLine("  [green]qqs <query> [[[grey]--exact[/]]][/]       Searches strictly by exact substring");
+        AnsiConsole.WriteLine();
+        AnsiConsole.MarkupLine("[bold]Daemon & Paths:[/]");
+        AnsiConsole.MarkupLine("  [green]qqs status[/]                  Displays running daemon status and monitored paths");
         AnsiConsole.MarkupLine("  [green]qqs add <path> [[[grey]--network[/]]][/]   Adds path to live monitoring");
         AnsiConsole.MarkupLine("  [green]qqs remove <path>[/]            Removes path from live monitoring");
         AnsiConsole.MarkupLine("  [green]qqs rescan [[path]][/]            Forces background re-indexing of a path");
         AnsiConsole.WriteLine();
-        AnsiConsole.MarkupLine("[bold]System & Diagnosis:[/]");
+        AnsiConsole.MarkupLine("[bold]System & Tools:[/]");
         AnsiConsole.MarkupLine("  [green]qqs benchmark [[directory]][/]    Runs crawler and SIMD search benchmark");
         AnsiConsole.MarkupLine("  [green]qqs mounts[/]                    Lists detected local and network mounts");
         AnsiConsole.MarkupLine("  [green]qqs config [[show|init]][/]        Inspects or initializes configuration");
@@ -99,12 +115,16 @@ public static class Program
 
     private static async Task<int> HandleSearchAsync(string[] args)
     {
-        bool fuzzy = false;
+        bool fuzzy = true;
         var queryParts = new List<string>();
 
         foreach (var arg in args)
         {
-            if (arg is "--fuzzy" or "-f")
+            if (arg is "--exact" or "-e")
+            {
+                fuzzy = false;
+            }
+            else if (arg is "--fuzzy" or "-f")
             {
                 fuzzy = true;
             }
@@ -129,7 +149,7 @@ public static class Program
             var results = await daemon.SearchWithOptionsAsync(query, 30, fuzzy);
             sw.Stop();
 
-            string mode = fuzzy ? " (Fuzzy)" : "";
+            string mode = fuzzy ? " (Fuzzy)" : " (Exact)";
             AnsiConsole.MarkupLine($"[green]Daemon found {results.Length} results in {sw.Elapsed.TotalMilliseconds:F2} ms{mode}:[/]");
             DisplayResultsTable(results.Select(r => new SearchResult(r.FullPath, r.FileName, r.Size, DateTimeOffset.FromUnixTimeSeconds(r.ModifiedTime), r.IsDirectory, r.Score)));
             return 0;
@@ -157,7 +177,7 @@ public static class Program
         var localResults = engine.Search(query, new SearchOptions { MaxResults = 30, Fuzzy = fuzzy });
         localSw.Stop();
 
-        string localMode = fuzzy ? " (Fuzzy)" : "";
+        string localMode = fuzzy ? " (Fuzzy)" : " (Exact)";
         AnsiConsole.MarkupLine($"[green]Found {localResults.Count} results in {localSw.Elapsed.TotalMilliseconds:F2} ms{localMode} (searched {engine.TotalFiles:N0} files):[/]");
         DisplayResultsTable(localResults);
         return 0;

@@ -198,7 +198,7 @@ fi
 
 echo "Quick Start:"
 echo "  • Check status:         qqs status"
-echo "  • Search files:         qqs search <filename> [--fuzzy]"
+echo "  • Search files:         qqs <query> [--exact]"
 echo "  • Add folder:           qqs add /path/to/folder"
 echo "  • Open GUI:             qqs gui (or via app launcher)"
 echo "  • Global Hotkey:        Press Meta+Shift+F anytime to toggle GUI!"

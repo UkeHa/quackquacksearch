@@ -17,7 +17,7 @@ QuackQuackSearch ist ein leichtgewichtiger, extrem schneller Datei-Indexierer un
 - 🌐 **Netzwerkfreigaben-Support:** Separater Polling-Scheduler mit konfigurierbaren Intervallen und IO-Timeouts für NFS-, CIFS/SMB- und SSHFS-Mounts.
 - ⌨️ **Globaler GUI-Hotkey (`Meta+Shift+F`):** Single-Instance Fenstertoggle: holt die Suche sofort aus jeder Anwendung in den Vordergrund oder minimiert sie.
 - 🔌 **Native KDE KRunner Integration:** Direktes Durchsuchen über `Alt+Space` / `Alt+F2` per D-Bus (`org.kde.krunner1`).
-- 🖥️ **Moderne Desktop-GUI:** Gebaut mit Avalonia UI 11, mit Live-Suche, Fuzzy-Toggle, virtueller Tabelle, Filter-Chips und automatischer Erkennung des System-Themes (KDE BreezeDark / Light).
+- 🖥️ **Moderne Desktop-GUI:** Gebaut mit Avalonia UI 11, mit Live-Suche inklusive standardmäßiger Fuzzy-Suche, virtueller Tabelle, Filter-Chips und automatischer Erkennung des System-Themes (KDE BreezeDark / Light).
 - ⚙️ **D-Bus Daemon & systemd-Dienst:** Läuft transparent im Benutzer-Hintergrund mit automatischem Snapshotting bei Beendigung.
 - 💻 **Mächtige CLI (`qqs`):** Komplette Verwaltung, Suche, Mount-Erkennung und Benchmarks direkt im Terminal.
 - 🔄 **Automatisierte CI/CD & Releases:** Continuous Integration und automatische GitHub Releases bei Commits auf `main`.
@@ -170,11 +170,11 @@ X-Plasma-DBusRunner-Path=/quackquacksearch
 
 ## 💻 CLI-Referenz (`qqs`)
 
-Das CLI-Tool `qqs` kommuniziert transparent mit dem laufenden Hintergrund-Daemon. Läuft der Daemon nicht, führt `qqs search` automatisch einen direkten Crawl der konfigurierten Pfade durch.
+Das CLI-Tool `qqs` kommuniziert transparent mit dem laufenden Hintergrund-Daemon. Läuft der Daemon nicht, führt `qqs <suchbegriff>` automatisch einen direkten Crawl des aktuellen Verzeichnisses durch.
 
 | Befehl | Beschreibung |
 |---|---|
-| `qqs search <query> [--fuzzy]` | Sucht Dateien nach Teilstring oder Dateiendung (optional mit Fuzzy-Matching) |
+| `qqs <suchbegriff> [--exact]` | Sucht Dateien (standardmäßig mit Fuzzy-Suche; `--exact` für exaktes Matching) |
 | `qqs status` | Zeigt Daemon-Status, RAM-Verbrauch, Dateianzahl und Pfade |
 | `qqs add <pfad> [--network]` | Fügt einen neuen lokalen oder Netzwerk-Pfad zur Überwachung hinzu |
 | `qqs remove <pfad>` | Entfernt einen Pfad (entfernt Treffer sofort aus dem Index) |
@@ -189,12 +189,13 @@ Das CLI-Tool `qqs` kommuniziert transparent mit dem laufenden Hintergrund-Daemon
 ### Beispiele
 
 ```bash
-# Exakte oder Teilstring-Suche
-qqs search rechnung.pdf
+# Direkte Suche nach Dateien (standardmäßig mit Fuzzy-Matching)
+qqs rechnung.pdf
+qqs memes
+qqs reprot
 
-# Fuzzy-Suche (Tippfehler & Abkürzungen wie 'qqs' -> 'QuackQuackSearch')
-qqs search qqs --fuzzy
-qqs search reprot --fuzzy
+# Exakte Teilstring-Suche ohne Tippfehler-Korrektur
+qqs rechnung.pdf --exact
 
 # Status des Indexers abfragen
 qqs status
@@ -222,7 +223,7 @@ qqs benchmark .
 Die grafische Benutzeroberfläche (`quackquacksearch-gui` oder `qqs gui`) bietet das vertraute Everything-Gefühl auf dem Linux-Desktop:
 
 - **Echtzeit-Suche beim Tippen:** Suchergebnisse erscheinen ohne spürbare Verzögerung während der Eingabe.
-- **⚡ Fuzzy-Suche Schalter:** Schnelles Umschalten zwischen exakter/Teilstring-Suche und fehlertoleranter Subsequenz-Suche (`⚡ Fuzzy`).
+- **⚡ Integrierte Fuzzy-Suche:** Fehlertolerante Subsequenz- und Tippfehler-Suche ist standardmäßig aktiv.
 - **Kategorie-Filter (Chips):** Schnellfilter nach Dokumenten, Bildern, Audio, Video, Archiven oder Quellcode.
 - **Virtuelle Tabelle:** Extrem flüssiges Scrolling auch bei zehntausenden Treffern durch UI-Virtualisierung.
 - **Single-Instance & Globale Hotkeys:**

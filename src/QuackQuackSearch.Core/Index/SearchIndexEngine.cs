@@ -184,7 +184,15 @@ public sealed class SearchIndexEngine
                     if (!options.IncludeDirectories && entry.IsDirectory)
                         continue;
 
-                    if (options.Fuzzy)
+                    if (hasWildcards)
+                    {
+                        if (SimdMatcher.Matches(entry.Name.AsSpan(), query.AsSpan(), true))
+                        {
+                            double score = ResultRanker.CalculateScore(entry.Name, query, entry.ModifiedUnixSeconds);
+                            list.Add((entry, score));
+                        }
+                    }
+                    else if (options.Fuzzy)
                     {
                         if (FuzzyMatcher.TryMatch(entry.Name.AsSpan(), query.AsSpan(), out double fuzzyScore))
                         {
@@ -194,7 +202,7 @@ public sealed class SearchIndexEngine
                             list.Add((entry, fuzzyScore));
                         }
                     }
-                    else if (SimdMatcher.Matches(entry.Name.AsSpan(), query.AsSpan(), hasWildcards))
+                    else if (SimdMatcher.Matches(entry.Name.AsSpan(), query.AsSpan(), false))
                     {
                         double score = ResultRanker.CalculateScore(entry.Name, query, entry.ModifiedUnixSeconds);
                         list.Add((entry, score));

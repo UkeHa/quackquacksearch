@@ -74,6 +74,8 @@ public static class FuzzyMatcher
         int dotIdx = target.LastIndexOf('.');
         ReadOnlySpan<char> nameStem = dotIdx > 0 ? target[..dotIdx] : target;
 
+        if (HasConflictingDigits(nameStem, query)) return false;
+
         int maxAllowedDist = query.Length >= 5 ? 2 : 1;
         if (Math.Abs(nameStem.Length - query.Length) <= maxAllowedDist)
         {
@@ -92,6 +94,8 @@ public static class FuzzyMatcher
     private static bool TryWordTypoMatch(ReadOnlySpan<char> target, ReadOnlySpan<char> query, out double score)
     {
         score = 0.0;
+        if (HasConflictingDigits(target, query)) return false;
+
         int maxAllowedDist = query.Length >= 5 ? 2 : 1;
 
         int start = 0;
@@ -116,6 +120,28 @@ public static class FuzzyMatcher
             }
         }
 
+        return false;
+    }
+
+    private static bool HasConflictingDigits(ReadOnlySpan<char> s1, ReadOnlySpan<char> s2)
+    {
+        Span<char> d1 = stackalloc char[s1.Length];
+        Span<char> d2 = stackalloc char[s2.Length];
+        int count1 = 0, count2 = 0;
+
+        for (int i = 0; i < s1.Length; i++)
+        {
+            if (char.IsDigit(s1[i])) d1[count1++] = s1[i];
+        }
+        for (int i = 0; i < s2.Length; i++)
+        {
+            if (char.IsDigit(s2[i])) d2[count2++] = s2[i];
+        }
+
+        if (count1 > 0 && count2 > 0)
+        {
+            return !d1[..count1].SequenceEqual(d2[..count2]);
+        }
         return false;
     }
 
