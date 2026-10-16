@@ -163,4 +163,31 @@ public class SearchIndexEngineTests
         engine.Remove("/non/existent/deep/path/file.txt").Should().BeFalse();
         engine.TotalDirectories.Should().Be(dirsBefore);
     }
+
+    [Fact]
+    public void PurgeIgnoredAndRemoveSubtree_ShouldCompactOrphanedDirectoryNodes()
+    {
+        using var engine = new SearchIndexEngine();
+        uint now = (uint)DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+
+        engine.BulkAdd(new List<DiscoveredItem>
+        {
+            new("/home/user/project/src", "main.cs", 100, now, false, false),
+            new("/home/user/project/temp_build/sub1/sub2", "artifact.bin", 200, now, false, false)
+        });
+
+        int dirsWithTemp = engine.TotalDirectories;
+        dirsWithTemp.Should().BeGreaterThan(5);
+
+        var matcher = new IgnoreMatcher(["**/temp_build/**"]);
+        int purged = engine.PurgeIgnored(matcher);
+        purged.Should().Be(1);
+
+        // Orphaned directories (temp_build/sub1/sub2) should be compacted away
+        engine.TotalDirectories.Should().BeLessThan(dirsWithTemp);
+
+        var found = engine.Search("main.cs", new SearchOptions { Fuzzy = false });
+        found.Should().HaveCount(1);
+        found[0].FullPath.Should().Be("/home/user/project/src/main.cs");
+    }
 }

@@ -62,6 +62,7 @@ public sealed class SearchIndexEngine : IDisposable
             }
 
             UpsertEntriesUnsafe(entriesToAdd);
+            CompactDirectoriesUnsafe();
         }
         finally
         {
@@ -130,6 +131,36 @@ public sealed class SearchIndexEngine : IDisposable
         {
             var e = _entries[i];
             _entryIndex[(e.DirectoryId, e.Name)] = i;
+        }
+    }
+
+    private void CompactDirectoriesUnsafe()
+    {
+        int dirTableUpper = _directoryTable.Count + 1;
+        if (dirTableUpper <= 1) return;
+
+        bool[] usedDirs = new bool[dirTableUpper];
+        for (int i = 0; i < _entries.Count; i++)
+        {
+            uint dirId = _entries[i].DirectoryId;
+            if (dirId < (uint)usedDirs.Length)
+            {
+                usedDirs[dirId] = true;
+            }
+        }
+
+        if (_directoryTable.Compact(usedDirs, out uint[] oldToNewIdMap))
+        {
+            for (int i = 0; i < _entries.Count; i++)
+            {
+                var e = _entries[i];
+                uint newDirId = e.DirectoryId < (uint)oldToNewIdMap.Length ? oldToNewIdMap[e.DirectoryId] : e.DirectoryId;
+                if (newDirId != e.DirectoryId)
+                {
+                    _entries[i] = e with { DirectoryId = newDirId };
+                }
+            }
+            RebuildEntryIndexUnsafe();
         }
     }
 
@@ -225,6 +256,7 @@ public sealed class SearchIndexEngine : IDisposable
             if (removedCount > 0)
             {
                 RebuildEntryIndexUnsafe();
+                CompactDirectoriesUnsafe();
             }
             return removedCount;
         }
@@ -242,15 +274,34 @@ public sealed class SearchIndexEngine : IDisposable
         _lock.EnterWriteLock();
         try
         {
+            string[] dirPaths = _directoryTable.GetAllResolvedPaths();
+            byte[] dirIgnoredState = new byte[dirPaths.Length]; // 0=unknown, 1=ignored, 2=not ignored
+
             int removed = _entries.RemoveAll(e =>
             {
-                string dir = _directoryTable.ResolveFullPath(e.DirectoryId);
+                uint dirId = e.DirectoryId;
+                string dir = dirId < (uint)dirPaths.Length ? dirPaths[dirId] : _directoryTable.ResolveFullPath(dirId);
+
+                if (dirId < (uint)dirIgnoredState.Length)
+                {
+                    byte state = dirIgnoredState[dirId];
+                    if (state == 1) return true;
+                    if (state == 0)
+                    {
+                        string dirName = Path.GetFileName(dir);
+                        bool isDirIgnored = !string.IsNullOrEmpty(dirName) && ignoreMatcher.ShouldIgnorePath(dir, dirName, isDirectory: true);
+                        dirIgnoredState[dirId] = isDirIgnored ? (byte)1 : (byte)2;
+                        if (isDirIgnored) return true;
+                    }
+                }
+
                 string fullPath = dir == "/" ? $"/{e.Name}" : $"{dir}/{e.Name}";
                 return ignoreMatcher.ShouldIgnorePath(fullPath, e.Name, e.IsDirectory);
             });
             if (removed > 0)
             {
                 RebuildEntryIndexUnsafe();
+                CompactDirectoriesUnsafe();
             }
             return removed;
         }
@@ -346,6 +397,9 @@ public sealed class SearchIndexEngine : IDisposable
             Dictionary<uint, double>? matchingDirs = options.SearchInPath && !queryCanSpanDirAndFile
                 ? _directoryTable.FindMatchingDirectoryScores(query, hasWildcards)
                 : null;
+            string[]? preResolvedDirs = queryCanSpanDirAndFile
+                ? _directoryTable.GetAllResolvedPaths()
+                : null;
 
             var localResults = new List<(CompactFileEntry Entry, double Score)>[coreCount];
 
@@ -356,6 +410,8 @@ public sealed class SearchIndexEngine : IDisposable
                 if (start >= end) return;
 
                 var topHeap = new PriorityQueue<(CompactFileEntry Entry, double Score), double>(Math.Min(end - start, maxResults + 1));
+                uint cachedDirId = 0;
+                string cachedDirPath = string.Empty;
 
                 void AddCandidate(CompactFileEntry candidateEntry, double candidateScore)
                 {
@@ -386,7 +442,7 @@ public sealed class SearchIndexEngine : IDisposable
                     {
                         if (SimdMatcher.Matches(entry.Name.AsSpan(), query.AsSpan(), true))
                         {
-                            score = ResultRanker.CalculateScore(entry.Name, query, entry.ModifiedUnixSeconds);
+                            score = ResultRanker.CalculateScore(entry.Name, query, entry.ModifiedUnixSeconds, now);
                             matched = true;
                         }
                     }
@@ -402,7 +458,7 @@ public sealed class SearchIndexEngine : IDisposable
                     }
                     else if (SimdMatcher.Matches(entry.Name.AsSpan(), query.AsSpan(), false))
                     {
-                        score = ResultRanker.CalculateScore(entry.Name, query, entry.ModifiedUnixSeconds);
+                        score = ResultRanker.CalculateScore(entry.Name, query, entry.ModifiedUnixSeconds, now);
                         matched = true;
                     }
 
@@ -420,11 +476,24 @@ public sealed class SearchIndexEngine : IDisposable
                         }
                         else
                         {
-                            string dirPath = _directoryTable.ResolveFullPath(entry.DirectoryId);
+                            string dirPath;
+                            if (entry.DirectoryId == cachedDirId && cachedDirId != 0)
+                            {
+                                dirPath = cachedDirPath;
+                            }
+                            else
+                            {
+                                dirPath = preResolvedDirs != null && entry.DirectoryId < (uint)preResolvedDirs.Length
+                                    ? preResolvedDirs[entry.DirectoryId]
+                                    : _directoryTable.ResolveFullPath(entry.DirectoryId);
+                                cachedDirId = entry.DirectoryId;
+                                cachedDirPath = dirPath;
+                            }
+
                             string fullPath = dirPath == "/" ? "/" + entry.Name : $"{dirPath}/{entry.Name}";
                             if (SimdMatcher.Matches(fullPath.AsSpan(), query.AsSpan(), hasWildcards))
                             {
-                                score = ResultRanker.CalculateScore(fullPath, query, entry.ModifiedUnixSeconds) * 0.8;
+                                score = ResultRanker.CalculateScore(fullPath, query, entry.ModifiedUnixSeconds, now) * 0.8;
                                 matched = true;
                             }
                         }
@@ -462,7 +531,9 @@ public sealed class SearchIndexEngine : IDisposable
             for (int i = 0; i < takeCount; i++)
             {
                 var item = allMatched[i];
-                string dirPath = _directoryTable.ResolveFullPath(item.Entry.DirectoryId);
+                string dirPath = preResolvedDirs != null && item.Entry.DirectoryId < (uint)preResolvedDirs.Length
+                    ? preResolvedDirs[item.Entry.DirectoryId]
+                    : _directoryTable.ResolveFullPath(item.Entry.DirectoryId);
                 string fullPath = dirPath == "/" ? "/" + item.Entry.Name : Path.Combine(dirPath, item.Entry.Name);
 
                 results.Add(new SearchResult(

@@ -134,6 +134,18 @@ public sealed class Loc
     public string RemoveExcludeButton => IsGerman ? "🗑️ Ausschluss löschen" : "🗑️ Remove exclusion";
     public string CloseButton => IsGerman ? "Schließen" : "Close";
 
+    public string DirectorySizeBadge => IsGerman ? "<ORDNER>" : "<DIR>";
+    public string InvalidExclusionError => IsGerman ? "Ungültiger Ausschluss." : "Invalid exclusion.";
+    public string PickMonitoredFolderTitle => IsGerman ? "Überwachten Ordner auswählen" : "Select monitored folder";
+
+    public string FormatPickSubfolderTitle(string rootPath) => IsGerman
+        ? $"Unterordner zum Ausschließen aus '{rootPath}' wählen"
+        : $"Select subfolder to exclude from '{rootPath}'";
+
+    public string FormatOpenError(string? error) => IsGerman
+        ? $"Fehler beim Öffnen: {error}"
+        : $"Failed to open: {error}";
+
     public string FormatPathTypeAndStatus(string type, bool enabled, string status, long currentCrawlFiles)
     {
         string typeLabel = string.Equals(type, "network", StringComparison.OrdinalIgnoreCase)
@@ -155,7 +167,9 @@ public sealed class Loc
                 : $"{typeLabel} • 🟡 Indexing...{progressText}";
         }
 
-        if (string.Equals(status, "Unreachable", StringComparison.OrdinalIgnoreCase))
+        if (string.Equals(status, "Offline", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(status, "Error", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(status, "Unreachable", StringComparison.OrdinalIgnoreCase))
         {
             return IsGerman ? $"{typeLabel} • 🔴 Nicht erreichbar" : $"{typeLabel} • 🔴 Unreachable";
         }

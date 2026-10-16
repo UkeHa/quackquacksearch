@@ -384,7 +384,7 @@ public partial class SettingsWindow : Window
         {
             if (errorLabel != null)
             {
-                errorLabel.Text = error ?? "Ungültiger Ausschluss.";
+                errorLabel.Text = error ?? Loc.Instance.InvalidExclusionError;
                 errorLabel.IsVisible = true;
             }
             return false;
@@ -428,7 +428,7 @@ public partial class SettingsWindow : Window
 
         var folders = await StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions
         {
-            Title = $"Unterordner zum Ausschließen aus '{selected.Path}' wählen",
+            Title = Loc.Instance.FormatPickSubfolderTitle(selected.Path),
             SuggestedStartLocation = startFolder,
             AllowMultiple = false
         });
@@ -443,7 +443,7 @@ public partial class SettingsWindow : Window
     {
         var folders = await StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions
         {
-            Title = "Überwachten Ordner auswählen",
+            Title = Loc.Instance.PickMonitoredFolderTitle,
             AllowMultiple = false
         });
 

@@ -1,3 +1,5 @@
+using QuackQuackSearch.Gui.Localization;
+
 namespace QuackQuackSearch.Gui.Models;
 
 public sealed record FileItemModel(
@@ -10,7 +12,7 @@ public sealed record FileItemModel(
     double Score
 )
 {
-    public string FormattedSize => IsDirectory ? "<ORDNER>" : FormatBytes(Size);
+    public string FormattedSize => IsDirectory ? Loc.Instance.DirectorySizeBadge : FormatBytes(Size);
     public string FormattedDate => ModifiedTime.LocalDateTime.ToString("yyyy-MM-dd HH:mm:ss");
 
     public string IconGlyph => IsDirectory ? "📁" : GetIconByExtension(Name);

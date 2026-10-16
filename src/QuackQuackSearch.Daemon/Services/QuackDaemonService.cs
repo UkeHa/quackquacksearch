@@ -53,7 +53,7 @@ public sealed class QuackDaemonService : IDaemonService, IDisposable
             try
             {
                 Console.WriteLine("[Daemon] Performing background rescan after inotify queue overflow...");
-                await CrawlConfiguredPathsAsync(_daemonCts.Token);
+                await ReconcileLocalPathsAsync(_daemonCts.Token);
                 await SaveSnapshotSafeAsync();
             }
             catch (Exception ex)
@@ -138,15 +138,15 @@ public sealed class QuackDaemonService : IDaemonService, IDisposable
             await SaveSnapshotSafeAsync();
         }
 
-        // Setup active monitoring for configured paths
-        SetupMonitoring();
+        // Setup active monitoring for configured paths (and reconcile offline changes in background if loaded from cache)
+        SetupMonitoring(reconcileFromCache: loaded);
 
         // Start periodic snapshot loop
         int intervalMinutes = Math.Max(1, _config.Indexing.SaveIntervalMinutes);
         _snapshotLoopTask = Task.Run(() => RunPeriodicSnapshotLoopAsync(TimeSpan.FromMinutes(intervalMinutes), _daemonCts.Token));
     }
 
-    private void SetupMonitoring()
+    private void SetupMonitoring(bool reconcileFromCache)
     {
         List<PathConfigEntry> pathsSnapshot;
         _configLock.Wait();
@@ -162,11 +162,12 @@ public sealed class QuackDaemonService : IDaemonService, IDisposable
         _networkPoller.SetPaths(pathsSnapshot);
         _networkPoller.Start();
 
-        _ = Task.Run(() =>
+        _ = Task.Run(async () =>
         {
             var localPaths = pathsSnapshot.Where(p => p.Type.Equals("local", StringComparison.OrdinalIgnoreCase) && p.Enabled);
             foreach (var p in localPaths)
             {
+                if (_daemonCts.IsCancellationRequested) return;
                 if (Directory.Exists(p.Path))
                 {
                     Console.WriteLine($"[Daemon] Registering inotify watch tree: {p.Path}...");
@@ -174,6 +175,24 @@ public sealed class QuackDaemonService : IDaemonService, IDisposable
                 }
             }
             Console.WriteLine($"[Daemon] Active inotify watches: {_inotifyWatcher.TotalActiveWatches:N0}");
+
+            if (reconcileFromCache && !_daemonCts.IsCancellationRequested)
+            {
+                try
+                {
+                    Console.WriteLine("[Daemon] Reconciling cached index with live filesystem in background...");
+                    await ReconcileLocalPathsAsync(_daemonCts.Token);
+                    await SaveSnapshotSafeAsync();
+                    Console.WriteLine($"[Daemon] Background cache reconciliation finished. Total files: {_engine.TotalFiles:N0}");
+                }
+                catch (OperationCanceledException)
+                {
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"[Daemon] Background cache reconciliation warning: {ex.Message}");
+                }
+            }
         });
     }
 
@@ -197,6 +216,43 @@ public sealed class QuackDaemonService : IDaemonService, IDisposable
         finally
         {
             _activeCrawls.TryRemove(normalizedPath, out _);
+        }
+    }
+
+    private async Task ReconcileLocalPathsAsync(CancellationToken cancellationToken)
+    {
+        List<PathConfigEntry> localPaths;
+        await _configLock.WaitAsync(cancellationToken);
+        try
+        {
+            localPaths = _config.Paths
+                .Where(p => p.Enabled && p.Type.Equals("local", StringComparison.OrdinalIgnoreCase))
+                .ToList();
+        }
+        finally
+        {
+            _configLock.Release();
+        }
+
+        foreach (var pathEntry in localPaths)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (!Directory.Exists(pathEntry.Path)) continue;
+
+            var stagedItems = new List<DiscoveredItem>();
+            var stageLock = new Lock();
+            await CrawlPathWithProgressAsync(pathEntry.Path, batch =>
+            {
+                lock (stageLock)
+                {
+                    stagedItems.AddRange(batch);
+                }
+                return Task.CompletedTask;
+            }, cancellationToken);
+
+            cancellationToken.ThrowIfCancellationRequested();
+            _engine.ReplaceSubtree(pathEntry.Path, stagedItems);
+            _inotifyWatcher.AddWatchTree(pathEntry.Path);
         }
     }
 

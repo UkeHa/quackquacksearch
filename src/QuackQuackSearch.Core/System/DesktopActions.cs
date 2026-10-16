@@ -37,41 +37,58 @@ public static class DesktopActions
         errorMessage = null;
         if (string.IsNullOrWhiteSpace(fullPath)) return false;
 
-        string? parentDir = Path.GetDirectoryName(fullPath);
+        string normalizedFull = Path.GetFullPath(fullPath);
+        string? parentDir = Path.GetDirectoryName(normalizedFull);
         if (string.IsNullOrEmpty(parentDir)) parentDir = "/";
 
+        // 1. Prefer standard freedesktop FileManager1 D-Bus interface (works across Dolphin, Nautilus, Nemo, Thunar, PCManFM)
         try
         {
-            var psi = new ProcessStartInfo
+            string fileUri = new Uri(normalizedFull).AbsoluteUri;
+            var dbusPsi = new ProcessStartInfo
             {
-                FileName = "dolphin",
+                FileName = "dbus-send",
                 UseShellExecute = false,
-                CreateNoWindow = true
+                CreateNoWindow = true,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true
             };
-            psi.ArgumentList.Add("--select");
-            psi.ArgumentList.Add(fullPath);
-            Process.Start(psi);
-            return true;
+            dbusPsi.ArgumentList.Add("--session");
+            dbusPsi.ArgumentList.Add("--print-reply");
+            dbusPsi.ArgumentList.Add("--dest=org.freedesktop.FileManager1");
+            dbusPsi.ArgumentList.Add("/org/freedesktop/FileManager1");
+            dbusPsi.ArgumentList.Add("org.freedesktop.FileManager1.ShowItems");
+            dbusPsi.ArgumentList.Add($"array:string:{fileUri}");
+            dbusPsi.ArgumentList.Add("string:");
+
+            using var proc = Process.Start(dbusPsi);
+            if (proc != null && proc.WaitForExit(1500) && proc.ExitCode == 0)
+            {
+                return true;
+            }
         }
         catch
         {
-            try
+            // Fallback if dbus-send or org.freedesktop.FileManager1 is unavailable
+        }
+
+        // 2. Fallback: open parent directory with default handler via xdg-open
+        try
+        {
+            var fallbackPsi = new ProcessStartInfo
             {
-                var fallbackPsi = new ProcessStartInfo
-                {
-                    FileName = "xdg-open",
-                    UseShellExecute = false,
-                    CreateNoWindow = true
-                };
-                fallbackPsi.ArgumentList.Add(parentDir);
-                Process.Start(fallbackPsi);
-                return true;
-            }
-            catch (Exception ex)
-            {
-                errorMessage = ex.Message;
-                return false;
-            }
+                FileName = "xdg-open",
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+            fallbackPsi.ArgumentList.Add(parentDir);
+            Process.Start(fallbackPsi);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ex.Message;
+            return false;
         }
     }
 

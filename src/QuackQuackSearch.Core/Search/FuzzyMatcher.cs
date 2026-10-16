@@ -150,7 +150,20 @@ public static class FuzzyMatcher
     private static bool TrySubsequenceMatch(ReadOnlySpan<char> target, ReadOnlySpan<char> query, out double score)
     {
         score = 0.0;
-        int tIdx = 0;
+        if (target.Length < query.Length) return false;
+
+        char q0Lower = char.ToLowerInvariant(query[0]);
+        char q0Upper = char.ToUpperInvariant(query[0]);
+        int firstPos = q0Lower == q0Upper
+            ? target.IndexOf(q0Lower)
+            : target.IndexOfAny(q0Lower, q0Upper);
+
+        if (firstPos < 0 || target.Length - firstPos < query.Length)
+        {
+            return false;
+        }
+
+        int tIdx = firstPos;
         int qIdx = 0;
 
         int consecutive = 0;

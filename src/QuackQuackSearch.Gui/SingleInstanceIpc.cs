@@ -80,16 +80,25 @@ public sealed class SingleInstanceIpc : IDisposable
         {
             try
             {
-                var client = await _listener.AcceptAsync(token);
-                _ = Task.Run(() =>
+                var client = await _listener.AcceptAsync(token).ConfigureAwait(false);
+                _ = Task.Run(async () =>
                 {
                     using (client)
+                    using (var receiveCts = CancellationTokenSource.CreateLinkedTokenSource(token))
                     {
-                        byte[] buffer = new byte[64];
-                        int read = client.Receive(buffer);
-                        if (read > 0)
+                        receiveCts.CancelAfter(TimeSpan.FromSeconds(1));
+                        try
                         {
-                            Dispatcher.UIThread.Post(() => _onTriggerAction());
+                            byte[] buffer = new byte[64];
+                            int read = await client.ReceiveAsync(buffer, SocketFlags.None, receiveCts.Token).ConfigureAwait(false);
+                            if (read > 0)
+                            {
+                                Dispatcher.UIThread.Post(() => _onTriggerAction());
+                            }
+                        }
+                        catch
+                        {
+                            // Ignore timed out or aborted IPC client
                         }
                     }
                 }, token);
@@ -100,7 +109,7 @@ public sealed class SingleInstanceIpc : IDisposable
             }
             catch
             {
-                await Task.Delay(100, token);
+                await Task.Delay(100, token).ConfigureAwait(false);
             }
         }
     }

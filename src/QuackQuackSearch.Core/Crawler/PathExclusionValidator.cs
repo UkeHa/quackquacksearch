@@ -2,6 +2,14 @@ namespace QuackQuackSearch.Core.Crawler;
 
 public static class PathExclusionValidator
 {
+    private static bool IsGermanCulture()
+    {
+        string lang = global::System.Globalization.CultureInfo.CurrentUICulture.TwoLetterISOLanguageName;
+        return string.IsNullOrEmpty(lang) ||
+               lang.Equals("iv", StringComparison.OrdinalIgnoreCase) ||
+               lang.Equals("de", StringComparison.OrdinalIgnoreCase);
+    }
+
     /// <summary>
     /// Checks whether an exclusion pattern or path is valid for a given monitored root path.
     /// An exclusion must reside within the root path (or be a relative pattern applying within it).
@@ -9,16 +17,17 @@ public static class PathExclusionValidator
     public static bool IsValid(string rootPath, string excludePattern, out string? errorMessage)
     {
         errorMessage = null;
+        bool de = IsGermanCulture();
 
         if (string.IsNullOrWhiteSpace(rootPath))
         {
-            errorMessage = "Überwachter Pfad ist ungültig.";
+            errorMessage = de ? "Überwachter Pfad ist ungültig." : "Monitored path is invalid.";
             return false;
         }
 
         if (string.IsNullOrWhiteSpace(excludePattern))
         {
-            errorMessage = "Ausschluss darf nicht leer sein.";
+            errorMessage = de ? "Ausschluss darf nicht leer sein." : "Exclusion pattern cannot be empty.";
             return false;
         }
 
@@ -42,7 +51,9 @@ public static class PathExclusionValidator
             // Cannot exclude root path itself (that would disable monitoring the entire path)
             if (string.Equals(fullExclude, fullRoot, StringComparison.Ordinal))
             {
-                errorMessage = $"Der Ausschluss darf nicht der überwachte Stammordner selbst sein ({fullRoot}).";
+                errorMessage = de
+                    ? $"Der Ausschluss darf nicht der überwachte Stammordner selbst sein ({fullRoot})."
+                    : $"The exclusion cannot be the monitored root folder itself ({fullRoot}).";
                 return false;
             }
 
@@ -50,7 +61,9 @@ public static class PathExclusionValidator
             string prefix = fullRoot + Path.DirectorySeparatorChar;
             if (!fullExclude.StartsWith(prefix, StringComparison.Ordinal))
             {
-                errorMessage = $"Der Ausschluss '{trimmedPattern}' liegt nicht innerhalb des überwachten Pfades '{fullRoot}'.";
+                errorMessage = de
+                    ? $"Der Ausschluss '{trimmedPattern}' liegt nicht innerhalb des überwachten Pfades '{fullRoot}'."
+                    : $"The exclusion '{trimmedPattern}' is not inside the monitored path '{fullRoot}'.";
                 return false;
             }
 
@@ -68,7 +81,9 @@ public static class PathExclusionValidator
                 depth--;
                 if (depth < 0)
                 {
-                    errorMessage = "Relative Pfade dürfen nicht mit '..' aus dem übergeordneten Ordner ausbrechen.";
+                    errorMessage = de
+                        ? "Relative Pfade dürfen nicht mit '..' aus dem übergeordneten Ordner ausbrechen."
+                        : "Relative paths must not escape the monitored root folder using '..'.";
                     return false;
                 }
             }

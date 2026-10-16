@@ -281,7 +281,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged, IDisposable
 
         if (!Core.System.DesktopActions.TryOpenFile(item.FullPath, out string? error))
         {
-            StatusMiddle = $"Fehler beim Öffnen: {error}";
+            StatusMiddle = Loc.FormatOpenError(error);
         }
     }
 

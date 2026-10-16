@@ -2,32 +2,35 @@ namespace QuackQuackSearch.Core.Search;
 
 public static class ResultRanker
 {
-    public static double CalculateScore(string fileName, string query, uint modifiedUnixSeconds)
+    public static double CalculateScore(string fileName, string query, uint modifiedUnixSeconds, long? nowUnixSeconds = null)
     {
         if (string.IsNullOrEmpty(fileName) || string.IsNullOrEmpty(query))
             return 0.0;
 
+        ReadOnlySpan<char> fileSpan = fileName.AsSpan();
+        ReadOnlySpan<char> querySpan = query.AsSpan();
+
         double score = 0.0;
 
-        bool hasWildcards = query.Contains('*') || query.Contains('?');
+        bool hasWildcards = querySpan.Contains('*') || querySpan.Contains('?');
 
-        if (fileName.Equals(query, StringComparison.OrdinalIgnoreCase))
+        if (fileSpan.Equals(querySpan, StringComparison.OrdinalIgnoreCase))
         {
             score += 1000.0;
         }
         else if (hasWildcards)
         {
-            if (query.StartsWith('*') && !query[1..].Contains('*') && !query[1..].Contains('?'))
+            if (querySpan.StartsWith("*") && !querySpan[1..].Contains('*') && !querySpan[1..].Contains('?'))
             {
                 // Pure suffix wildcard, e.g. "*emes" or "*.pdf"
-                string suffix = query[1..];
-                if (fileName.Equals(suffix, StringComparison.OrdinalIgnoreCase))
+                ReadOnlySpan<char> suffix = querySpan[1..];
+                if (fileSpan.Equals(suffix, StringComparison.OrdinalIgnoreCase))
                 {
                     score += 950.0;
                 }
-                else if (fileName.EndsWith(suffix, StringComparison.OrdinalIgnoreCase))
+                else if (fileSpan.EndsWith(suffix, StringComparison.OrdinalIgnoreCase))
                 {
-                    int prefixLen = fileName.Length - suffix.Length;
+                    int prefixLen = fileSpan.Length - suffix.Length;
                     score += Math.Max(250.0, 850.0 - (prefixLen * 15.0));
                 }
                 else
@@ -35,17 +38,17 @@ public static class ResultRanker
                     score += 200.0;
                 }
             }
-            else if (query.EndsWith('*') && !query[..^1].Contains('*') && !query[..^1].Contains('?'))
+            else if (querySpan.EndsWith("*") && !querySpan[..^1].Contains('*') && !querySpan[..^1].Contains('?'))
             {
                 // Pure prefix wildcard, e.g. "meme*"
-                string prefix = query[..^1];
-                if (fileName.Equals(prefix, StringComparison.OrdinalIgnoreCase))
+                ReadOnlySpan<char> prefix = querySpan[..^1];
+                if (fileSpan.Equals(prefix, StringComparison.OrdinalIgnoreCase))
                 {
                     score += 950.0;
                 }
-                else if (fileName.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                else if (fileSpan.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
                 {
-                    int suffixLen = fileName.Length - prefix.Length;
+                    int suffixLen = fileSpan.Length - prefix.Length;
                     score += Math.Max(250.0, 850.0 - (suffixLen * 15.0));
                 }
                 else
@@ -53,17 +56,17 @@ public static class ResultRanker
                     score += 200.0;
                 }
             }
-            else if (query.StartsWith('*') && query.EndsWith('*') && !query[1..^1].Contains('*') && !query[1..^1].Contains('?'))
+            else if (querySpan.Length >= 2 && querySpan.StartsWith("*") && querySpan.EndsWith("*") && !querySpan[1..^1].Contains('*') && !querySpan[1..^1].Contains('?'))
             {
                 // Substring wildcard, e.g. "*emes*"
-                string sub = query[1..^1];
-                if (fileName.Equals(sub, StringComparison.OrdinalIgnoreCase))
+                ReadOnlySpan<char> sub = querySpan[1..^1];
+                if (fileSpan.Equals(sub, StringComparison.OrdinalIgnoreCase))
                 {
                     score += 900.0;
                 }
-                else if (fileName.Contains(sub, StringComparison.OrdinalIgnoreCase))
+                else if (fileSpan.Contains(sub, StringComparison.OrdinalIgnoreCase))
                 {
-                    int extraLen = fileName.Length - sub.Length;
+                    int extraLen = fileSpan.Length - sub.Length;
                     score += Math.Max(200.0, 750.0 - (extraLen * 10.0));
                 }
                 else
@@ -74,12 +77,12 @@ public static class ResultRanker
             else
             {
                 int nonWildcardChars = 0;
-                foreach (char c in query) if (c != '*' && c != '?') nonWildcardChars++;
-                int extraLen = Math.Max(0, fileName.Length - nonWildcardChars);
+                foreach (char c in querySpan) if (c != '*' && c != '?') nonWildcardChars++;
+                int extraLen = Math.Max(0, fileSpan.Length - nonWildcardChars);
                 score += Math.Max(150.0, 700.0 - (extraLen * 8.0));
             }
         }
-        else if (fileName.StartsWith(query, StringComparison.OrdinalIgnoreCase))
+        else if (fileSpan.StartsWith(querySpan, StringComparison.OrdinalIgnoreCase))
         {
             score += 800.0;
         }
@@ -87,7 +90,7 @@ public static class ResultRanker
         {
             score += 650.0;
         }
-        else if (fileName.Contains(query, StringComparison.OrdinalIgnoreCase))
+        else if (fileSpan.Contains(querySpan, StringComparison.OrdinalIgnoreCase))
         {
             score += 450.0;
         }
@@ -97,11 +100,11 @@ public static class ResultRanker
         }
 
         // Length bonus: shorter file names matching the query get higher relevance
-        int lenDiff = Math.Max(0, fileName.Length - query.Length);
+        int lenDiff = Math.Max(0, fileSpan.Length - querySpan.Length);
         score += Math.Max(0, 100.0 - (lenDiff * 2.0));
 
         // Recency bonus: files modified within recent days get up to 50 points bonus
-        long now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        long now = nowUnixSeconds ?? DateTimeOffset.UtcNow.ToUnixTimeSeconds();
         long ageSeconds = Math.Max(0, now - modifiedUnixSeconds);
         if (ageSeconds < 86400 * 7) // 7 days
         {

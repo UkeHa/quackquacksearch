@@ -17,7 +17,7 @@ public static class KRunnerPluginInstaller
         string content = $"""
 [Desktop Entry]
 Name=QuackQuackSearch
-Comment=Lightning fast file search via QuackQuackSearch
+Comment=Everything-like ultra fast file search via QuackQuackSearch
 X-KDE-ServiceTypes=Plasma/Runner
 Type=Service
 Icon=system-search
@@ -30,6 +30,9 @@ X-Plasma-DBusRunner-Service=org.quackquacksearch.Daemon
 X-Plasma-DBusRunner-Path=/quackquacksearch
 X-Plasma-Request-Actions-Once=true
 X-Plasma-Runner-Min-Letter-Count={minLetters}
+X-Plasma-Runner-Match-Regex=^.*$
+X-Plasma-Runner-Syntaxes=:q:
+X-Plasma-Runner-Syntax-Descriptions=Fast file search matching query
 X-Plasma-Runner-Unique-Results=true
 X-Plasma-Runner-Weak-Results=true
 """;

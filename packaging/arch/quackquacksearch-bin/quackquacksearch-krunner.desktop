@@ -1,12 +1,20 @@
 [Desktop Entry]
 Name=QuackQuackSearch
-Comment=Everything-like ultra fast file search
-Type=Service
+Comment=Everything-like ultra fast file search via QuackQuackSearch
 X-KDE-ServiceTypes=Plasma/Runner
+Type=Service
+Icon=system-search
+X-KDE-PluginInfo-Name=quackquacksearch
+X-KDE-PluginInfo-Version=1.0
+X-KDE-PluginInfo-License=GPL-3.0
+X-KDE-PluginInfo-EnabledByDefault=true
+X-Plasma-API=DBus2
+X-Plasma-DBusRunner-Service=org.quackquacksearch.Daemon
+X-Plasma-DBusRunner-Path=/quackquacksearch
+X-Plasma-Request-Actions-Once=true
 X-Plasma-Runner-Min-Letter-Count=2
 X-Plasma-Runner-Match-Regex=^.*$
 X-Plasma-Runner-Syntaxes=:q:
 X-Plasma-Runner-Syntax-Descriptions=Fast file search matching query
-X-Plasma-API=DBus2
-X-Plasma-DBusRunner-Service=org.quackquacksearch.Daemon
-X-Plasma-DBusRunner-Path=/quackquacksearch
+X-Plasma-Runner-Unique-Results=true
+X-Plasma-Runner-Weak-Results=true

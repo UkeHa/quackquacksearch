@@ -40,10 +40,34 @@ public sealed class LocalInotifyWatcher : IDisposable
         InitInotify();
     }
 
+    private readonly ConcurrentDictionary<int, int> _pendingExplicitRemoves = new();
+
     public void UpdateIgnoreMatcher(IgnoreMatcher ignoreMatcher)
     {
         ArgumentNullException.ThrowIfNull(ignoreMatcher);
         _ignoreMatcher = ignoreMatcher;
+        PruneIgnoredWatches(ignoreMatcher);
+    }
+
+    private void PruneIgnoredWatches(IgnoreMatcher matcher)
+    {
+        if (_isDisposed) return;
+
+        var wdsToRemove = new List<int>();
+        foreach (var (wd, path) in _wdToPath)
+        {
+            string dirName = Path.GetFileName(path);
+            if (!string.IsNullOrEmpty(dirName) &&
+                (matcher.ShouldIgnoreDirectoryName(dirName) || matcher.ShouldIgnorePath(path, dirName, isDirectory: true)))
+            {
+                wdsToRemove.Add(wd);
+            }
+        }
+
+        foreach (int wd in wdsToRemove)
+        {
+            RemoveSingleWatch(wd);
+        }
     }
 
     private void InitInotify()
@@ -146,6 +170,12 @@ public sealed class LocalInotifyWatcher : IDisposable
         int wd = InotifyNative.inotify_add_watch(_inotifyFd, path, WatchMask);
         if (wd >= 0)
         {
+            if (_wdToPath.TryGetValue(wd, out string? previousPath) &&
+                !string.Equals(previousPath, path, StringComparison.Ordinal))
+            {
+                _pathToWd.TryRemove(previousPath, out _);
+            }
+
             _wdToPath[wd] = path;
             _pathToWd[path] = wd;
             return wd;
@@ -160,9 +190,31 @@ public sealed class LocalInotifyWatcher : IDisposable
             _pathToWd.TryRemove(path, out _);
             if (!_isDisposed && _inotifyFd >= 0)
             {
-                InotifyNative.inotify_rm_watch(_inotifyFd, wd);
+                _pendingExplicitRemoves.AddOrUpdate(wd, 1, static (_, c) => c + 1);
+                if (InotifyNative.inotify_rm_watch(_inotifyFd, wd) < 0)
+                {
+                    DecrementPendingRemove(wd);
+                }
             }
         }
+    }
+
+    private bool DecrementPendingRemove(int wd)
+    {
+        while (_pendingExplicitRemoves.TryGetValue(wd, out int count))
+        {
+            if (count <= 1)
+            {
+                if (_pendingExplicitRemoves.TryRemove( new KeyValuePair<int, int>(wd, count)))
+                    return true;
+            }
+            else
+            {
+                if (_pendingExplicitRemoves.TryUpdate(wd, count - 1, count))
+                    return true;
+            }
+        }
+        return false;
     }
 
     /// <summary>
@@ -273,7 +325,7 @@ public sealed class LocalInotifyWatcher : IDisposable
 
         if ((mask & (uint)InotifyNative.Mask.IN_IGNORED) != 0)
         {
-            if (_wdToPath.TryRemove(wd, out string? removedPath))
+            if (!DecrementPendingRemove(wd) && _wdToPath.TryRemove(wd, out string? removedPath))
             {
                 _pathToWd.TryRemove(removedPath, out _);
             }
@@ -398,5 +450,6 @@ public sealed class LocalInotifyWatcher : IDisposable
 
         _wdToPath.Clear();
         _pathToWd.Clear();
+        _pendingExplicitRemoves.Clear();
     }
 }

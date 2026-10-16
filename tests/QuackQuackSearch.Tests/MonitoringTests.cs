@@ -79,6 +79,14 @@ public class MonitoringTests
 
             var deletedMatches = engine.Search("sample_doc", new SearchOptions { Fuzzy = false });
             deletedMatches.Should().BeEmpty();
+
+            // 6. Updating ignore matcher should prune watches for newly excluded subdirectories
+            string ignoredSubDir = Path.Combine(tempDir, "exclude_me");
+            Directory.CreateDirectory(ignoredSubDir);
+            await WaitUntilAsync(() => watcher.TotalActiveWatches >= 2);
+
+            watcher.UpdateIgnoreMatcher(new QuackQuackSearch.Core.Crawler.IgnoreMatcher(["**/exclude_me/**"]));
+            watcher.TotalActiveWatches.Should().Be(1);
         }
         finally
         {

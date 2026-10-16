@@ -303,13 +303,11 @@ public sealed class DirectoryTable : IDisposable
 
             result.Add(rootId);
 
-            // Nodes are added in topological parent-before-child order, but to be 100% order-independent,
-            // we memoize each node's membership in a stackalloc/array state buffer (0=unknown, 1=in, 2=out)
+            // Nodes are added in topological parent-before-child order, but to be 100% order-independent
+            // and support arbitrary nesting depth (>64 levels), we memoize each node's membership in a state buffer (0=unknown, 1=in, 2=out)
             int count = _nodes.Count;
             byte[] state = new byte[count];
             state[rootId] = 1;
-
-            Span<uint> chain = stackalloc uint[64];
 
             for (int i = 1; i < count; i++)
             {
@@ -319,11 +317,11 @@ public sealed class DirectoryTable : IDisposable
                     continue;
                 }
 
-                int chainLen = 0;
                 uint curr = (uint)i;
                 byte outcome = 2;
+                int steps = 0;
 
-                while (curr != 0 && curr < count)
+                while (curr != 0 && curr < count && steps++ < count)
                 {
                     byte s = state[curr];
                     if (s != 0)
@@ -331,21 +329,19 @@ public sealed class DirectoryTable : IDisposable
                         outcome = s;
                         break;
                     }
-                    if (chainLen < chain.Length)
-                    {
-                        chain[chainLen++] = curr;
-                    }
                     curr = _nodes[(int)curr].ParentId;
                 }
 
-                for (int c = 0; c < chainLen; c++)
+                curr = (uint)i;
+                steps = 0;
+                while (curr != 0 && curr < count && state[curr] == 0 && steps++ < count)
                 {
-                    uint id = chain[c];
-                    state[id] = outcome;
+                    state[curr] = outcome;
                     if (outcome == 1)
                     {
-                        result.Add(id);
+                        result.Add(curr);
                     }
+                    curr = _nodes[(int)curr].ParentId;
                 }
             }
         }
@@ -355,6 +351,113 @@ public sealed class DirectoryTable : IDisposable
         }
 
         return result;
+    }
+
+    /// <summary>
+    /// Resolves all directory paths in a single read-locked pass for fast bulk operations.
+    /// </summary>
+    public string[] GetAllResolvedPaths()
+    {
+        _lock.EnterReadLock();
+        try
+        {
+            int count = _nodes.Count;
+            string[] paths = new string[count];
+            paths[0] = string.Empty;
+            for (int i = 1; i < count; i++)
+            {
+                paths[i] = ResolveFullPathUnsafe((uint)i);
+            }
+            return paths;
+        }
+        finally
+        {
+            _lock.ExitReadLock();
+        }
+    }
+
+    /// <summary>
+    /// Compacts the directory table by removing orphaned directory nodes that are neither in activeLeafOrBranchIds
+    /// nor ancestors of any active directory. Returns true if any nodes were removed, along with the old-to-new ID mapping.
+    /// </summary>
+    public bool Compact(ReadOnlySpan<bool> directlyUsedDirIds, out uint[] oldToNewIdMap)
+    {
+        _lock.EnterWriteLock();
+        try
+        {
+            int count = _nodes.Count;
+            if (count <= 1)
+            {
+                oldToNewIdMap = [0];
+                return false;
+            }
+
+            bool[] keep = new bool[count];
+            int limit = Math.Min(count, directlyUsedDirIds.Length);
+            for (int i = 1; i < limit; i++)
+            {
+                if (directlyUsedDirIds[i])
+                {
+                    uint curr = (uint)i;
+                    int steps = 0;
+                    while (curr != 0 && curr < count && !keep[curr] && steps++ < count)
+                    {
+                        keep[curr] = true;
+                        curr = _nodes[(int)curr].ParentId;
+                    }
+                }
+            }
+
+            int keepCount = 0;
+            for (int i = 1; i < count; i++)
+            {
+                if (keep[i]) keepCount++;
+            }
+
+            if (keepCount == count - 1)
+            {
+                oldToNewIdMap = [];
+                return false;
+            }
+
+            oldToNewIdMap = new uint[count];
+            uint nextId = 1;
+            for (int i = 1; i < count; i++)
+            {
+                if (keep[i])
+                {
+                    oldToNewIdMap[i] = nextId++;
+                }
+            }
+
+            var newNodes = new List<DirectoryNode>(keepCount + 1)
+            {
+                new(0, 0, string.Empty)
+            };
+
+            _lookup.Clear();
+            _lookup.EnsureCapacity(keepCount);
+
+            for (int i = 1; i < count; i++)
+            {
+                if (!keep[i]) continue;
+
+                var oldNode = _nodes[i];
+                uint newId = oldToNewIdMap[i];
+                uint newParentId = oldNode.ParentId < count ? oldToNewIdMap[oldNode.ParentId] : 0;
+                var newNode = new DirectoryNode(newId, newParentId, oldNode.Name);
+                newNodes.Add(newNode);
+                _lookup[(newParentId, oldNode.Name)] = newId;
+            }
+
+            _nodes.Clear();
+            _nodes.AddRange(newNodes);
+            return true;
+        }
+        finally
+        {
+            _lock.ExitWriteLock();
+        }
     }
 
     /// <summary>
@@ -383,7 +486,6 @@ public sealed class DirectoryTable : IDisposable
                     }
                 }
 
-                Span<uint> chain = stackalloc uint[64];
                 for (int i = 1; i < count; i++)
                 {
                     if (matchedState[i] == 1)
@@ -393,10 +495,10 @@ public sealed class DirectoryTable : IDisposable
                     }
                     if (matchedState[i] == 2) continue;
 
-                    int chainLen = 0;
                     uint curr = (uint)i;
                     byte outcome = 2;
-                    while (curr != 0 && curr < count)
+                    int steps = 0;
+                    while (curr != 0 && curr < count && steps++ < count)
                     {
                         byte s = matchedState[curr];
                         if (s != 0)
@@ -404,18 +506,19 @@ public sealed class DirectoryTable : IDisposable
                             outcome = s;
                             break;
                         }
-                        if (chainLen < chain.Length) chain[chainLen++] = curr;
                         curr = _nodes[(int)curr].ParentId;
                     }
 
-                    for (int c = 0; c < chainLen; c++)
+                    curr = (uint)i;
+                    steps = 0;
+                    while (curr != 0 && curr < count && matchedState[curr] == 0 && steps++ < count)
                     {
-                        uint id = chain[c];
-                        matchedState[id] = outcome;
+                        matchedState[curr] = outcome;
                         if (outcome == 1)
                         {
-                            result[id] = 450.0;
+                            result[curr] = 450.0;
                         }
+                        curr = _nodes[(int)curr].ParentId;
                     }
                 }
             }
