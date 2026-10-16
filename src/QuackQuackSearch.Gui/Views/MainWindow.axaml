@@ -17,7 +17,7 @@
                 <TextBox Grid.Column="0"
                          Name="SearchInputBox"
                          Text="{Binding SearchText, Mode=TwoWay}"
-                         PlaceholderText="Dateiname, Erweiterung oder Wildcards (z.B. *.cs, config, doc, quack)..."
+                         PlaceholderText="{Binding Loc.SearchPlaceholder}"
                          FontSize="15"
                          Padding="10,8"
                          CornerRadius="6"
@@ -28,15 +28,15 @@
                         Command="{Binding ClearSearch}"
                         Margin="6,0,0,0"
                         Padding="12,8"
-                        ToolTip.Tip="Suche leeren"
+                        ToolTip.Tip="{Binding Loc.ClearSearchTooltip}"
                         CornerRadius="6" />
 
                 <Button Grid.Column="2"
-                        Content="⚙️ Pfade"
+                        Content="{Binding Loc.SettingsButton}"
                         Name="SettingsButton"
                         Margin="6,0,0,0"
                         Padding="12,8"
-                        ToolTip.Tip="Überwachte Pfade verwalten"
+                        ToolTip.Tip="{Binding Loc.SettingsTooltip}"
                         CornerRadius="6" />
             </Grid>
         </Border>
@@ -44,14 +44,14 @@
         <!-- Category Filter Chips -->
         <Border Grid.Row="1" Padding="12,4,12,8" Background="{DynamicResource SystemChromeLowColor}">
             <StackPanel Name="FilterPanel" Orientation="Horizontal" Spacing="6">
-                <Button Content="Alle" Tag="all" Click="FilterButton_Click" CornerRadius="12" Padding="10,4" />
-                <Button Content="Dateien" Tag="files" Click="FilterButton_Click" CornerRadius="12" Padding="10,4" />
-                <Button Content="Ordner" Tag="dirs" Click="FilterButton_Click" CornerRadius="12" Padding="10,4" />
-                <Button Content="Dokumente" Tag="docs" Click="FilterButton_Click" CornerRadius="12" Padding="10,4" />
-                <Button Content="Bilder" Tag="images" Click="FilterButton_Click" CornerRadius="12" Padding="10,4" />
-                <Button Content="Audio/Video" Tag="media" Click="FilterButton_Click" CornerRadius="12" Padding="10,4" />
-                <Button Content="Code" Tag="code" Click="FilterButton_Click" CornerRadius="12" Padding="10,4" />
-                <Button Content="Archive" Tag="archives" Click="FilterButton_Click" CornerRadius="12" Padding="10,4" />
+                <Button Content="{Binding Loc.FilterAll}" Tag="all" Click="FilterButton_Click" CornerRadius="12" Padding="10,4" />
+                <Button Content="{Binding Loc.FilterFiles}" Tag="files" Click="FilterButton_Click" CornerRadius="12" Padding="10,4" />
+                <Button Content="{Binding Loc.FilterDirs}" Tag="dirs" Click="FilterButton_Click" CornerRadius="12" Padding="10,4" />
+                <Button Content="{Binding Loc.FilterDocs}" Tag="docs" Click="FilterButton_Click" CornerRadius="12" Padding="10,4" />
+                <Button Content="{Binding Loc.FilterImages}" Tag="images" Click="FilterButton_Click" CornerRadius="12" Padding="10,4" />
+                <Button Content="{Binding Loc.FilterMedia}" Tag="media" Click="FilterButton_Click" CornerRadius="12" Padding="10,4" />
+                <Button Content="{Binding Loc.FilterCode}" Tag="code" Click="FilterButton_Click" CornerRadius="12" Padding="10,4" />
+                <Button Content="{Binding Loc.FilterArchives}" Tag="archives" Click="FilterButton_Click" CornerRadius="12" Padding="10,4" />
             </StackPanel>
         </Border>
 
@@ -71,11 +71,11 @@
 
             <DataGrid.ContextMenu>
                 <ContextMenu>
-                    <MenuItem Header="Öffnen (Enter)" Click="MenuOpen_Click" />
-                    <MenuItem Header="Im Dateimanager anzeigen (Strg+O)" Click="MenuOpenFolder_Click" />
+                    <MenuItem Header="{Binding Loc.MenuOpen}" Click="MenuOpen_Click" />
+                    <MenuItem Header="{Binding Loc.MenuOpenFolder}" Click="MenuOpenFolder_Click" />
                     <Separator />
-                    <MenuItem Header="Pfad kopieren (Strg+Umschalt+C)" Click="MenuCopyPath_Click" />
-                    <MenuItem Header="Dateiname kopieren (Strg+C)" Click="MenuCopyName_Click" />
+                    <MenuItem Header="{Binding Loc.MenuCopyPath}" Click="MenuCopyPath_Click" />
+                    <MenuItem Header="{Binding Loc.MenuCopyName}" Click="MenuCopyName_Click" />
                 </ContextMenu>
             </DataGrid.ContextMenu>
 

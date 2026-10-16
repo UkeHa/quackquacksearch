@@ -1,9 +1,12 @@
 using System.Collections.ObjectModel;
 using Avalonia.Controls;
 using Avalonia.Platform.Storage;
+using Avalonia.Threading;
 using QuackQuackSearch.Core.Config;
 using QuackQuackSearch.Core.Crawler;
 using QuackQuackSearch.Core.DBus;
+using QuackQuackSearch.Gui.Localization;
+using QuackQuackSearch.Gui.Models;
 using Tmds.DBus;
 
 namespace QuackQuackSearch.Gui.Views;
@@ -11,24 +14,38 @@ namespace QuackQuackSearch.Gui.Views;
 public partial class SettingsWindow : Window
 {
     private readonly QuackConfig _config;
-    private readonly ObservableCollection<PathConfigEntry> _paths = [];
+    private readonly ObservableCollection<PathItemViewModel> _paths = [];
     private readonly ObservableCollection<string> _currentExcludes = [];
+    private readonly DispatcherTimer _statusTimer;
+    private bool _isPollingStatus;
 
     public SettingsWindow()
     {
         InitializeComponent();
 
+        var loc = Loc.Instance;
+        Title = loc.SettingsWindowTitle;
+
         _config = ConfigManager.LoadOrCreateDefault();
         foreach (var p in _config.Paths)
         {
-            _paths.Add(p);
+            _paths.Add(new PathItemViewModel(p));
         }
+
+        var sectionHeader = this.FindControl<TextBlock>("SectionPathsHeader");
+        if (sectionHeader != null) sectionHeader.Text = loc.SettingsSectionPathsHeader;
+
+        var excludesHeader = this.FindControl<TextBlock>("ExcludesHeaderLabel");
+        if (excludesHeader != null) excludesHeader.Text = loc.ExcludesHeader;
 
         var pathsListBox = this.FindControl<ListBox>("PathsListBox");
         var excludesListBox = this.FindControl<ListBox>("ExcludesListBox");
         var selectedPathLabel = this.FindControl<TextBlock>("SelectedPathLabel");
         var newExcludeTextBox = this.FindControl<TextBox>("NewExcludeTextBox");
         var errorLabel = this.FindControl<TextBlock>("ExcludeErrorLabel");
+
+        if (selectedPathLabel != null) selectedPathLabel.Text = loc.SelectPathPrompt;
+        if (newExcludeTextBox != null) newExcludeTextBox.PlaceholderText = loc.ExcludePlaceholder;
 
         if (pathsListBox != null)
         {
@@ -37,13 +54,12 @@ public partial class SettingsWindow : Window
             {
                 if (errorLabel != null) errorLabel.IsVisible = false;
 
-                var selected = pathsListBox.SelectedItem as PathConfigEntry;
+                var selected = pathsListBox.SelectedItem as PathItemViewModel;
                 _currentExcludes.Clear();
 
                 if (selected != null)
                 {
                     if (selectedPathLabel != null) selectedPathLabel.Text = selected.Path;
-                    selected.CustomExcludes ??= [];
                     foreach (var exc in selected.CustomExcludes)
                     {
                         _currentExcludes.Add(exc);
@@ -51,7 +67,7 @@ public partial class SettingsWindow : Window
                 }
                 else
                 {
-                    if (selectedPathLabel != null) selectedPathLabel.Text = "Wähle links einen Pfad aus";
+                    if (selectedPathLabel != null) selectedPathLabel.Text = loc.SelectPathPrompt;
                 }
             };
 
@@ -77,21 +93,38 @@ public partial class SettingsWindow : Window
         var addBtn = this.FindControl<Button>("AddFolderButton");
         if (addBtn != null)
         {
+            addBtn.Content = loc.AddFolderButton;
             addBtn.Click += async (_, _) => await AddFolderAsync();
+        }
+
+        var rescanBtn = this.FindControl<Button>("RescanFolderButton");
+        if (rescanBtn != null)
+        {
+            rescanBtn.Content = loc.RescanFolderButton;
+            rescanBtn.Click += (_, _) =>
+            {
+                if (pathsListBox?.SelectedItem is PathItemViewModel selected && selected.Enabled)
+                {
+                    selected.UpdateLiveStatus("Scanning", 0, selected.Path);
+                    _ = TriggerRescanInBackgroundAsync(selected.Path);
+                }
+            };
         }
 
         var removeBtn = this.FindControl<Button>("RemoveFolderButton");
         if (removeBtn != null)
         {
+            removeBtn.Content = loc.RemoveFolderButton;
             removeBtn.Click += async (_, _) => await RemoveSelectedFolderAsync();
         }
 
         var excludeFolderBtn = this.FindControl<Button>("ExcludeFolderPickerButton");
         if (excludeFolderBtn != null)
         {
+            excludeFolderBtn.Content = loc.PickSubfolderButton;
             excludeFolderBtn.Click += async (_, _) =>
             {
-                if (pathsListBox?.SelectedItem is not PathConfigEntry selected) return;
+                if (pathsListBox?.SelectedItem is not PathItemViewModel selected) return;
                 await PickSubfolderToExcludeAsync(selected);
             };
         }
@@ -99,14 +132,14 @@ public partial class SettingsWindow : Window
         var addExcludeTextBtn = this.FindControl<Button>("AddExcludeTextButton");
         if (addExcludeTextBtn != null)
         {
+            addExcludeTextBtn.Content = loc.AddExcludeButton;
             addExcludeTextBtn.Click += async (_, _) =>
             {
-                if (pathsListBox?.SelectedItem is not PathConfigEntry selected) return;
+                if (pathsListBox?.SelectedItem is not PathItemViewModel selected) return;
                 string pattern = newExcludeTextBox?.Text?.Trim() ?? string.Empty;
 
                 if (string.IsNullOrEmpty(pattern))
                 {
-                    // Wenn der Text leer ist, öffne die "Unterordner wählen..."-Maske
                     await PickSubfolderToExcludeAsync(selected);
                 }
                 else
@@ -123,12 +156,12 @@ public partial class SettingsWindow : Window
         var removeExcludeBtn = this.FindControl<Button>("RemoveExcludeButton");
         if (removeExcludeBtn != null)
         {
+            removeExcludeBtn.Content = loc.RemoveExcludeButton;
             removeExcludeBtn.Click += async (_, _) =>
             {
-                if (pathsListBox?.SelectedItem is not PathConfigEntry selected) return;
+                if (pathsListBox?.SelectedItem is not PathItemViewModel selected) return;
                 if (excludesListBox?.SelectedItem is not string selectedExclude) return;
 
-                selected.CustomExcludes ??= [];
                 selected.CustomExcludes.Remove(selectedExclude);
                 _currentExcludes.Remove(selectedExclude);
                 ConfigManager.Save(_config);
@@ -150,8 +183,10 @@ public partial class SettingsWindow : Window
         var closeBtn = this.FindControl<Button>("CloseButton");
         if (closeBtn != null)
         {
+            closeBtn.Content = loc.CloseButton;
             closeBtn.Click += async (_, _) =>
             {
+                _statusTimer?.Stop();
                 ConfigManager.Save(_config);
                 try
                 {
@@ -170,9 +205,78 @@ public partial class SettingsWindow : Window
                 Close();
             };
         }
+
+        _statusTimer = new DispatcherTimer
+        {
+            Interval = TimeSpan.FromMilliseconds(750)
+        };
+        _statusTimer.Tick += async (_, _) => await RefreshPathStatusesAsync();
+
+        Opened += async (_, _) =>
+        {
+            await RefreshPathStatusesAsync();
+            _statusTimer.Start();
+        };
+
+        Closed += (_, _) =>
+        {
+            _statusTimer.Stop();
+        };
     }
 
-    private async Task<bool> AddExcludeAsync(PathConfigEntry selected, string pattern)
+    private async Task RefreshPathStatusesAsync()
+    {
+        if (_isPollingStatus) return;
+        _isPollingStatus = true;
+
+        try
+        {
+            var conn = Connection.Session;
+            await conn.ConnectAsync();
+            if (!await conn.IsServiceActiveAsync("org.quackquacksearch.Daemon"))
+                return;
+
+            var daemon = conn.CreateProxy<IDaemonService>("org.quackquacksearch.Daemon", "/org/quackquacksearch/Daemon");
+            var dtos = await daemon.ListPathsAsync();
+
+            var map = dtos.ToDictionary(
+                d => Path.GetFullPath(d.Path).TrimEnd(Path.DirectorySeparatorChar),
+                d => d,
+                StringComparer.Ordinal);
+
+            foreach (var item in _paths)
+            {
+                string norm = Path.GetFullPath(item.Path).TrimEnd(Path.DirectorySeparatorChar);
+                if (map.TryGetValue(norm, out var dto))
+                {
+                    item.UpdateLiveStatus(dto.Status, dto.CurrentCrawlFiles, dto.CurrentCrawlDirectory);
+                }
+            }
+        }
+        catch { }
+        finally
+        {
+            _isPollingStatus = false;
+        }
+    }
+
+    private async Task TriggerRescanInBackgroundAsync(string path)
+    {
+        try
+        {
+            var conn = Connection.Session;
+            await conn.ConnectAsync();
+            if (await conn.IsServiceActiveAsync("org.quackquacksearch.Daemon"))
+            {
+                var daemon = conn.CreateProxy<IDaemonService>("org.quackquacksearch.Daemon", "/org/quackquacksearch/Daemon");
+                await daemon.TriggerRescanAsync(path);
+                await RefreshPathStatusesAsync();
+            }
+        }
+        catch { }
+    }
+
+    private async Task<bool> AddExcludeAsync(PathItemViewModel selected, string pattern)
     {
         var errorLabel = this.FindControl<TextBlock>("ExcludeErrorLabel");
 
@@ -191,7 +295,6 @@ public partial class SettingsWindow : Window
             errorLabel.IsVisible = false;
         }
 
-        selected.CustomExcludes ??= [];
         if (!selected.CustomExcludes.Contains(pattern, StringComparer.OrdinalIgnoreCase))
         {
             selected.CustomExcludes.Add(pattern);
@@ -214,7 +317,7 @@ public partial class SettingsWindow : Window
         return true;
     }
 
-    private async Task PickSubfolderToExcludeAsync(PathConfigEntry selected)
+    private async Task PickSubfolderToExcludeAsync(PathItemViewModel selected)
     {
         var errorLabel = this.FindControl<TextBlock>("ExcludeErrorLabel");
         if (errorLabel != null) errorLabel.IsVisible = false;
@@ -261,22 +364,27 @@ public partial class SettingsWindow : Window
                     Type = detectedMode,
                     Enabled = true
                 };
-                _paths.Add(entry);
+                var vm = new PathItemViewModel(entry);
+                vm.UpdateLiveStatus("Scanning", 0, localPath);
+                _paths.Add(vm);
                 _config.Paths.Add(entry);
                 ConfigManager.Save(_config);
 
-                // Notify daemon if running
-                try
+                // Notify daemon in background so UI stays responsive and shows live crawl status
+                _ = Task.Run(async () =>
                 {
-                    var conn = Connection.Session;
-                    await conn.ConnectAsync();
-                    if (await conn.IsServiceActiveAsync("org.quackquacksearch.Daemon"))
+                    try
                     {
-                        var daemon = conn.CreateProxy<IDaemonService>("org.quackquacksearch.Daemon", "/org/quackquacksearch/Daemon");
-                        await daemon.AddPathAsync(localPath, detectedMode);
+                        var conn = Connection.Session;
+                        await conn.ConnectAsync();
+                        if (await conn.IsServiceActiveAsync("org.quackquacksearch.Daemon"))
+                        {
+                            var daemon = conn.CreateProxy<IDaemonService>("org.quackquacksearch.Daemon", "/org/quackquacksearch/Daemon");
+                            await daemon.AddPathAsync(localPath, detectedMode);
+                        }
                     }
-                }
-                catch { }
+                    catch { }
+                });
             }
         }
     }
@@ -308,10 +416,10 @@ public partial class SettingsWindow : Window
     private async Task RemoveSelectedFolderAsync()
     {
         var listBox = this.FindControl<ListBox>("PathsListBox");
-        if (listBox?.SelectedItem is PathConfigEntry selected)
+        if (listBox?.SelectedItem is PathItemViewModel selected)
         {
             _paths.Remove(selected);
-            _config.Paths.Remove(selected);
+            _config.Paths.Remove(selected.Entry);
             ConfigManager.Save(_config);
 
             try

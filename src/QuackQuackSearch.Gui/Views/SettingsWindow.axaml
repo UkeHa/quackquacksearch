@@ -1,15 +1,17 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        xmlns:m="using:QuackQuackSearch.Core.Config"
+        xmlns:m="using:QuackQuackSearch.Gui.Models"
         x:Class="QuackQuackSearch.Gui.Views.SettingsWindow"
         Title="QuackQuackSearch - Einstellungen"
-        Width="820" Height="520"
+        Width="960" Height="540"
+        MinWidth="960" MinHeight="480"
         WindowStartupLocation="CenterOwner"
         CanResize="True">
 
     <Grid RowDefinitions="Auto,*,Auto" Margin="16">
 
         <TextBlock Grid.Row="0"
+                   Name="SectionPathsHeader"
                    Text="Überwachte Pfade &amp; Ausgeschlossene Unterordner"
                    FontSize="16"
                    FontWeight="SemiBold"
@@ -25,17 +27,25 @@
                     <ListBox Name="PathsListBox"
                              SelectionMode="Single">
                         <ListBox.ItemTemplate>
-                            <DataTemplate DataType="m:PathConfigEntry">
-                                <Grid ColumnDefinitions="*,Auto" Margin="4">
-                                    <StackPanel Grid.Column="0">
-                                        <TextBlock Text="{Binding Path}" FontWeight="Medium" TextTrimming="CharacterEllipsis" />
-                                        <TextBlock Text="{Binding Type}" FontSize="12" Opacity="0.7" />
-                                    </StackPanel>
-                                    <CheckBox Grid.Column="1"
-                                              IsChecked="{Binding Enabled}"
-                                              Content="Aktiv"
-                                              Margin="8,0,0,0" />
-                                </Grid>
+                            <DataTemplate DataType="m:PathItemViewModel">
+                                <StackPanel Margin="4" Spacing="4">
+                                    <Grid ColumnDefinitions="*,Auto">
+                                        <StackPanel Grid.Column="0" Spacing="2">
+                                            <TextBlock Text="{Binding Path}" FontWeight="Medium" TextTrimming="CharacterEllipsis" />
+                                            <TextBlock Text="{Binding StatusBadgeText}" FontSize="12" Opacity="0.85" TextTrimming="CharacterEllipsis" />
+                                        </StackPanel>
+                                        <CheckBox Grid.Column="1"
+                                                  IsChecked="{Binding Enabled}"
+                                                  Content="{Binding EnabledLabel}"
+                                                  Margin="8,0,0,0"
+                                                  VerticalAlignment="Center" />
+                                    </Grid>
+                                    <ProgressBar IsIndeterminate="True"
+                                                 IsVisible="{Binding IsScanning}"
+                                                 Height="3"
+                                                 MinHeight="3"
+                                                 Margin="0,2,0,0" />
+                                </StackPanel>
                             </DataTemplate>
                         </ListBox.ItemTemplate>
                     </ListBox>
@@ -44,6 +54,10 @@
                 <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="8" Margin="0,8,0,0">
                     <Button Name="AddFolderButton"
                             Content="📁 Ordner hinzufügen..."
+                            Padding="10,6"
+                            CornerRadius="6" />
+                    <Button Name="RescanFolderButton"
+                            Content="🔄 Neu indexieren"
                             Padding="10,6"
                             CornerRadius="6" />
                     <Button Name="RemoveFolderButton"
@@ -56,7 +70,7 @@
             <!-- Right Column: Exclusions for Selected Path -->
             <Grid Grid.Column="2" RowDefinitions="Auto,*,Auto,Auto,Auto">
                 <StackPanel Grid.Row="0" Margin="0,0,0,8">
-                    <TextBlock Text="Ausschlüsse (Unterordner / Muster):" FontWeight="SemiBold" />
+                    <TextBlock Name="ExcludesHeaderLabel" Text="Ausschlüsse (Unterordner / Muster):" FontWeight="SemiBold" />
                     <TextBlock Name="SelectedPathLabel"
                                Text="Wähle links einen Pfad aus"
                                FontSize="12"

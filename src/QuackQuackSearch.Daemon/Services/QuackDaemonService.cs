@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using QuackQuackSearch.Core.Config;
 using QuackQuackSearch.Core.Crawler;
@@ -17,6 +18,7 @@ public sealed class QuackDaemonService : IDaemonService, IDisposable
     private volatile IgnoreMatcher _ignoreMatcher;
     private readonly LocalInotifyWatcher _inotifyWatcher;
     private readonly NetworkPollingScheduler _networkPoller;
+    private readonly ConcurrentDictionary<string, CrawlProgress> _activeCrawls = new(StringComparer.Ordinal);
     private readonly System.Timers.Timer _snapshotTimer;
     private readonly SemaphoreSlim _configLock = new(1, 1);
     private readonly SemaphoreSlim _snapshotLock = new(1, 1);
@@ -34,6 +36,7 @@ public sealed class QuackDaemonService : IDaemonService, IDisposable
         _ignoreMatcher = CreateCombinedIgnoreMatcher(_config);
         _inotifyWatcher = new LocalInotifyWatcher(_engine, _ignoreMatcher);
         _networkPoller = new NetworkPollingScheduler(_engine, _ignoreMatcher);
+        _networkPoller.OnPollCompleted += async _ => await SaveSnapshotSafeAsync();
 
         int intervalMinutes = Math.Max(1, _config.Indexing.SaveIntervalMinutes);
         _snapshotTimer = new System.Timers.Timer(TimeSpan.FromMinutes(intervalMinutes).TotalMilliseconds)
@@ -119,6 +122,29 @@ public sealed class QuackDaemonService : IDaemonService, IDisposable
         });
     }
 
+    private sealed class SyncCrawlProgress(Action<CrawlProgress> callback) : IProgress<CrawlProgress>
+    {
+        public void Report(CrawlProgress value) => callback(value);
+    }
+
+    private async Task CrawlPathWithProgressAsync(
+        string normalizedPath,
+        Func<IReadOnlyList<DiscoveredItem>, Task> onBatch,
+        CancellationToken cancellationToken = default)
+    {
+        _activeCrawls[normalizedPath] = new CrawlProgress(0, 0, normalizedPath);
+        try
+        {
+            var crawler = new FastFileSystemCrawler(_ignoreMatcher, _config.Indexing.MaxParallelThreads);
+            var progress = new SyncCrawlProgress(p => _activeCrawls[normalizedPath] = p);
+            await crawler.CrawlAsync(normalizedPath, onBatch, progress, cancellationToken);
+        }
+        finally
+        {
+            _activeCrawls.TryRemove(normalizedPath, out _);
+        }
+    }
+
     private async Task CrawlConfiguredPathsAsync(CancellationToken cancellationToken)
     {
         List<PathConfigEntry> enabledPaths;
@@ -132,19 +158,17 @@ public sealed class QuackDaemonService : IDaemonService, IDisposable
             _configLock.Release();
         }
 
-        var crawler = new FastFileSystemCrawler(_ignoreMatcher, _config.Indexing.MaxParallelThreads);
-
         foreach (var pathEntry in enabledPaths)
         {
             if (Directory.Exists(pathEntry.Path))
             {
                 Console.WriteLine($"[Daemon] Crawling: {pathEntry.Path}...");
                 var sw = Stopwatch.StartNew();
-                await crawler.CrawlAsync(pathEntry.Path, batch =>
+                await CrawlPathWithProgressAsync(pathEntry.Path, batch =>
                 {
                     _engine.BulkAdd(batch);
                     return Task.CompletedTask;
-                }, cancellationToken: cancellationToken);
+                }, cancellationToken);
                 sw.Stop();
                 Console.WriteLine($"[Daemon] Crawled {pathEntry.Path} in {sw.Elapsed.TotalSeconds:F2}s. Total files: {_engine.TotalFiles:N0}");
             }
@@ -226,8 +250,7 @@ public sealed class QuackDaemonService : IDaemonService, IDisposable
 
         if (entry.Type == "local")
         {
-            var crawler = new FastFileSystemCrawler(_ignoreMatcher, _config.Indexing.MaxParallelThreads);
-            await crawler.CrawlAsync(normalized, batch =>
+            await CrawlPathWithProgressAsync(normalized, batch =>
             {
                 _engine.BulkAdd(batch);
                 return Task.CompletedTask;
@@ -325,8 +348,7 @@ public sealed class QuackDaemonService : IDaemonService, IDisposable
         {
             if (entryType == "local")
             {
-                var crawler = new FastFileSystemCrawler(_ignoreMatcher, _config.Indexing.MaxParallelThreads);
-                await crawler.CrawlAsync(normalized, batch =>
+                await CrawlPathWithProgressAsync(normalized, batch =>
                 {
                     _engine.BulkAdd(batch);
                     return Task.CompletedTask;
@@ -346,27 +368,46 @@ public sealed class QuackDaemonService : IDaemonService, IDisposable
 
     public async Task<PathInfoDto[]> ListPathsAsync()
     {
-        var netStatuses = _networkPoller.GetStatuses().ToDictionary(s => s.Path, s => s.State.ToString(), StringComparer.Ordinal);
+        var netStatuses = _networkPoller.GetStatuses().ToDictionary(s => s.Path, s => s, StringComparer.Ordinal);
 
         await _configLock.WaitAsync();
         try
         {
             return _config.Paths.Select(p =>
             {
+                string normPath = Path.GetFullPath(p.Path).TrimEnd(Path.DirectorySeparatorChar);
+                if (string.IsNullOrEmpty(normPath)) normPath = "/";
+
                 string status = "Active";
-                if (!p.Enabled) status = "Disabled";
-                else if (p.Type == "network" && netStatuses.TryGetValue(p.Path, out string? netState))
+                long currentFiles = 0;
+                string currentDir = string.Empty;
+
+                if (!p.Enabled)
                 {
-                    status = netState;
+                    status = "Disabled";
+                }
+                else if (_activeCrawls.TryGetValue(normPath, out var activeProg) || _activeCrawls.TryGetValue(p.Path, out activeProg))
+                {
+                    status = "Scanning";
+                    currentFiles = activeProg.FilesFound;
+                    currentDir = activeProg.CurrentDirectory ?? string.Empty;
+                }
+                else if (p.Type == "network" && (netStatuses.TryGetValue(p.Path, out var netStatus) || netStatuses.TryGetValue(normPath, out netStatus)))
+                {
+                    status = netStatus.State.ToString();
+                    currentFiles = netStatus.CurrentCrawlFiles;
+                    currentDir = netStatus.CurrentCrawlDirectory ?? string.Empty;
                 }
 
                 return new PathInfoDto
                 {
-                    Path = p.Path,
-                    Type = p.Type,
+                    Path = p.Path ?? string.Empty,
+                    Type = p.Type ?? "local",
                     Enabled = p.Enabled,
                     Status = status,
-                    ExcludesCsv = string.Join(";", p.CustomExcludes ?? [])
+                    ExcludesCsv = string.Join(";", p.CustomExcludes ?? []),
+                    CurrentCrawlFiles = currentFiles,
+                    CurrentCrawlDirectory = currentDir
                 };
             }).ToArray();
         }
@@ -463,8 +504,7 @@ public sealed class QuackDaemonService : IDaemonService, IDisposable
         {
             _ = Task.Run(async () =>
             {
-                var crawler = new FastFileSystemCrawler(_ignoreMatcher, _config.Indexing.MaxParallelThreads);
-                await crawler.CrawlAsync(entryPath, batch =>
+                await CrawlPathWithProgressAsync(entryPath, batch =>
                 {
                     _engine.BulkAdd(batch);
                     return Task.CompletedTask;
@@ -526,8 +566,7 @@ public sealed class QuackDaemonService : IDaemonService, IDisposable
 
         _ = Task.Run(async () =>
         {
-            var crawler = new FastFileSystemCrawler(_ignoreMatcher, _config.Indexing.MaxParallelThreads);
-            await crawler.CrawlAsync(entryPath, batch =>
+            await CrawlPathWithProgressAsync(entryPath, batch =>
             {
                 _engine.BulkAdd(batch);
                 return Task.CompletedTask;
@@ -545,13 +584,38 @@ public sealed class QuackDaemonService : IDaemonService, IDisposable
 
     public Task<DaemonStatusDto> GetStatusAsync()
     {
+        bool isIndexing = false;
+        string activePath = string.Empty;
+        long currentCrawlFiles = 0;
+
+        var activeLocal = _activeCrawls.FirstOrDefault();
+        if (activeLocal.Key != null)
+        {
+            isIndexing = true;
+            activePath = activeLocal.Key;
+            currentCrawlFiles = activeLocal.Value.FilesFound;
+        }
+        else
+        {
+            var scanningNet = _networkPoller.GetStatuses().FirstOrDefault(s => s.State == NetworkShareState.Scanning);
+            if (scanningNet != null)
+            {
+                isIndexing = true;
+                activePath = scanningNet.Path ?? string.Empty;
+                currentCrawlFiles = scanningNet.CurrentCrawlFiles;
+            }
+        }
+
         var status = new DaemonStatusDto
         {
             TotalFiles = _engine.TotalFiles,
             TotalDirectories = _engine.TotalDirectories,
             ActiveWatches = _inotifyWatcher.TotalActiveWatches,
             MemoryBytes = GC.GetTotalMemory(false),
-            UptimeSeconds = (long)(DateTimeOffset.UtcNow - _startTime).TotalSeconds
+            UptimeSeconds = (long)(DateTimeOffset.UtcNow - _startTime).TotalSeconds,
+            IsIndexing = isIndexing,
+            ActiveIndexingPath = activePath,
+            CurrentCrawlFiles = currentCrawlFiles
         };
 
         return Task.FromResult(status);
@@ -595,8 +659,7 @@ public sealed class QuackDaemonService : IDaemonService, IDisposable
 
             var stagedItems = new List<DiscoveredItem>();
             var stageLock = new Lock();
-            var crawler = new FastFileSystemCrawler(_ignoreMatcher, _config.Indexing.MaxParallelThreads);
-            await crawler.CrawlAsync(targetPath, batch =>
+            await CrawlPathWithProgressAsync(targetPath, batch =>
             {
                 lock (stageLock)
                 {

@@ -22,6 +22,8 @@ public struct PathInfoDto
     public bool Enabled;
     public string Status;
     public string ExcludesCsv;
+    public long CurrentCrawlFiles;
+    public string CurrentCrawlDirectory;
 }
 
 [StructLayout(LayoutKind.Sequential)]
@@ -32,6 +34,9 @@ public struct DaemonStatusDto
     public int ActiveWatches;
     public long MemoryBytes;
     public long UptimeSeconds;
+    public bool IsIndexing;
+    public string ActiveIndexingPath;
+    public long CurrentCrawlFiles;
 }
 
 [DBusInterface("org.quackquacksearch.Daemon")]

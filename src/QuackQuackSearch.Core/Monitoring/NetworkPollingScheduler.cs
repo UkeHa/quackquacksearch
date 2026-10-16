@@ -18,6 +18,13 @@ public sealed class NetworkShareStatus(string path)
     public NetworkShareState State { get; set; } = NetworkShareState.Idle;
     public DateTimeOffset LastSuccessfulPoll { get; set; }
     public string? LastError { get; set; }
+    public long CurrentCrawlFiles { get; set; }
+    public string CurrentCrawlDirectory { get; set; } = string.Empty;
+}
+
+internal sealed class DirectProgress<T>(Action<T> handler) : IProgress<T>
+{
+    public void Report(T value) => handler(value);
 }
 
 public sealed class NetworkPollingScheduler : IDisposable
@@ -33,6 +40,7 @@ public sealed class NetworkPollingScheduler : IDisposable
     private bool _isDisposed;
 
     public event Action<string, NetworkShareState, string?>? OnStatusChanged;
+    public event Action<string>? OnPollCompleted;
 
     public NetworkPollingScheduler(SearchIndexEngine engine, IgnoreMatcher? ignoreMatcher = null)
     {
@@ -78,7 +86,9 @@ public sealed class NetworkPollingScheduler : IDisposable
             {
                 State = s.State,
                 LastSuccessfulPoll = s.LastSuccessfulPoll,
-                LastError = s.LastError
+                LastError = s.LastError,
+                CurrentCrawlFiles = s.CurrentCrawlFiles,
+                CurrentCrawlDirectory = s.CurrentCrawlDirectory
             }).ToArray();
         }
     }
@@ -141,10 +151,15 @@ public sealed class NetworkPollingScheduler : IDisposable
         }
 
         int reachabilityTimeoutSec = entry.TimeoutSeconds > 0 ? entry.TimeoutSeconds : 5;
-        int crawlTimeoutSec = Math.Max(reachabilityTimeoutSec * 20, 120);
+        var inactivityTimeout = TimeSpan.FromSeconds(Math.Max(reachabilityTimeoutSec * 6, 30));
 
         try
         {
+            lock (_lock)
+            {
+                status.CurrentCrawlFiles = 0;
+                status.CurrentCrawlDirectory = entry.Path;
+            }
             UpdateStatus(status, NetworkShareState.Scanning, null);
 
             using (var reachabilityCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken))
@@ -163,21 +178,39 @@ public sealed class NetworkPollingScheduler : IDisposable
             }
 
             using var crawlCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            crawlCts.CancelAfter(TimeSpan.FromSeconds(crawlTimeoutSec));
+            crawlCts.CancelAfter(inactivityTimeout);
+
+            var progress = new DirectProgress<CrawlProgress>(p =>
+            {
+                try { crawlCts.CancelAfter(inactivityTimeout); } catch (ObjectDisposedException) { }
+                lock (_lock)
+                {
+                    status.CurrentCrawlFiles = p.FilesFound;
+                    status.CurrentCrawlDirectory = p.CurrentDirectory;
+                }
+            });
 
             await Task.Run(async () =>
             {
                 var stagedItems = new List<DiscoveredItem>();
                 var stageLock = new Lock();
-                var crawler = new FastFileSystemCrawler(_ignoreMatcher, maxDegreeOfParallelism: 2);
+                var crawler = new FastFileSystemCrawler(_ignoreMatcher, maxDegreeOfParallelism: 4);
                 await crawler.CrawlAsync(entry.Path, batch =>
                 {
+                    try { crawlCts.CancelAfter(inactivityTimeout); } catch (ObjectDisposedException) { }
+                    long count;
                     lock (stageLock)
                     {
                         stagedItems.AddRange(batch);
+                        count = stagedItems.Count;
+                    }
+                    _engine.BulkAdd(batch);
+                    lock (_lock)
+                    {
+                        status.CurrentCrawlFiles = count;
                     }
                     return Task.CompletedTask;
-                }, cancellationToken: crawlCts.Token).ConfigureAwait(false);
+                }, progress: progress, cancellationToken: crawlCts.Token).ConfigureAwait(false);
 
                 crawlCts.Token.ThrowIfCancellationRequested();
                 _engine.ReplaceSubtree(entry.Path, stagedItems);
@@ -186,8 +219,11 @@ public sealed class NetworkPollingScheduler : IDisposable
             lock (_lock)
             {
                 status.LastSuccessfulPoll = DateTimeOffset.UtcNow;
+                status.CurrentCrawlFiles = 0;
+                status.CurrentCrawlDirectory = string.Empty;
             }
             UpdateStatus(status, NetworkShareState.Idle, null);
+            OnPollCompleted?.Invoke(entry.Path);
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {

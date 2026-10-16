@@ -8,6 +8,7 @@ using QuackQuackSearch.Core.DBus;
 using QuackQuackSearch.Core.Index;
 using QuackQuackSearch.Core.Search;
 using QuackQuackSearch.Core.Storage;
+using QuackQuackSearch.Gui.Localization;
 using QuackQuackSearch.Gui.Models;
 using Tmds.DBus;
 
@@ -21,14 +22,16 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged, IDisposable
 
     private string _searchText = string.Empty;
     private string _activeFilter = "all";
-    private string _statusLeft = "Bereit";
+    private string _statusLeft = Loc.Instance.StatusReady;
     private string _statusMiddle = string.Empty;
-    private string _statusDaemon = "● Prüfe Daemon...";
+    private string _statusDaemon = Loc.Instance.StatusCheckingDaemon;
     private bool _isDaemonConnected;
     private bool _isLoading;
     private FileItemModel? _selectedItem;
 
     private readonly List<FileItemModel> _allCurrentResults = [];
+
+    public Loc Loc => Loc.Instance;
 
     public ObservableCollection<FileItemModel> Results { get; } = [];
 
@@ -127,26 +130,26 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged, IDisposable
                 _daemonService = conn.CreateProxy<IDaemonService>("org.quackquacksearch.Daemon", "/org/quackquacksearch/Daemon");
                 var status = await _daemonService.GetStatusAsync();
                 IsDaemonConnected = true;
-                StatusDaemon = "● Daemon: Verbunden";
-                StatusLeft = $"{status.TotalFiles:N0} Dateien in {status.TotalDirectories:N0} Ordnern";
+                StatusDaemon = Loc.StatusDaemonConnected;
+                StatusLeft = Loc.FormatTotalFilesAndDirs(status.TotalFiles, status.TotalDirectories);
             }
             else
             {
-                StatusDaemon = "○ Daemon: Nicht aktiv (Lade Cache...)";
+                StatusDaemon = Loc.StatusDaemonInactiveCache;
                 bool loaded = await IndexSerializer.TryLoadAsync(_fallbackEngine);
                 if (loaded)
                 {
-                    StatusLeft = $"{_fallbackEngine.TotalFiles:N0} Dateien (Offline-Cache)";
+                    StatusLeft = Loc.FormatOfflineCacheFiles(_fallbackEngine.TotalFiles);
                 }
                 else
                 {
-                    StatusLeft = "Kein Daemon oder Cache gefunden.";
+                    StatusLeft = Loc.StatusNoDaemonOrCache;
                 }
             }
         }
         catch (Exception ex)
         {
-            StatusDaemon = "○ Standalone-Modus";
+            StatusDaemon = Loc.StatusStandalone;
             StatusLeft = $"Offline: {ex.Message}";
         }
         finally
@@ -210,7 +213,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged, IDisposable
                 {
                     _daemonService = null;
                     IsDaemonConnected = false;
-                    StatusDaemon = "○ Daemon getrennt";
+                    StatusDaemon = Loc.StatusDaemonDisconnected;
                 }
             }
 
@@ -226,7 +229,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged, IDisposable
 
         sw.Stop();
         ApplyFilterAndRefreshList();
-        StatusMiddle = $"{Results.Count:N0} Treffer ({sw.Elapsed.TotalMilliseconds:F1} ms)";
+        StatusMiddle = Loc.FormatSearchHits(Results.Count, sw.Elapsed.TotalMilliseconds);
     }
 
     private void ApplyFilterAndRefreshList()
@@ -323,7 +326,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged, IDisposable
         if (item == null) return;
 
         CopyToClipboard(item.FullPath);
-        StatusMiddle = "Pfad in Zwischenablage kopiert!";
+        StatusMiddle = Loc.PathCopied;
     }
 
     public void CopyName(FileItemModel? item)
@@ -332,7 +335,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged, IDisposable
         if (item == null) return;
 
         CopyToClipboard(item.Name);
-        StatusMiddle = "Dateiname kopiert!";
+        StatusMiddle = Loc.NameCopied;
     }
 
     private static void CopyToClipboard(string text)
