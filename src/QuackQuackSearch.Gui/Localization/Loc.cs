@@ -86,9 +86,39 @@ public sealed class Loc
         ? "QuackQuackSearch - Einstellungen"
         : "QuackQuackSearch - Settings";
 
+    public string SettingsTabPaths => IsGerman ? "Pfade" : "Paths";
+    public string SettingsTabAppearance => IsGerman ? "Aussehen" : "Appearance";
+
     public string SettingsSectionPathsHeader => IsGerman
         ? "Überwachte Pfade & Ausgeschlossene Unterordner"
         : "Monitored Paths & Excluded Subfolders";
+
+    public string SettingsSectionAppearanceHeader => IsGerman
+        ? "Farbschema & Erscheinungsbild"
+        : "Color Scheme & Appearance";
+
+    public string AppearanceDescription => IsGerman
+        ? "Wähle das Erscheinungsbild der Anwendung. Im Modus „Automatisch“ übernimmt QuackQuackSearch die Farben deines Desktop-Themes (KDE, GNOME, XFCE, Hyprland, i3 usw.)."
+        : "Choose the appearance of the application. In 'Automatic' mode, QuackQuackSearch adopts the colors of your desktop theme (KDE, GNOME, XFCE, Hyprland, i3, etc.).";
+
+    public string ThemeAutoTitle => IsGerman ? "Automatisch (System-Theme)" : "Automatic (System theme)";
+    public string ThemeAutoSubtitle => IsGerman
+        ? "Folgt automatisch dem aktuellen Desktop-Farbschema und den Systemfarben"
+        : "Automatically follows the current desktop color scheme and system colors";
+
+    public string ThemeDarkTitle => IsGerman ? "Dunkel" : "Dark";
+    public string ThemeDarkSubtitle => IsGerman
+        ? "Dunkles Erscheinungsbild verwenden"
+        : "Use dark appearance";
+
+    public string ThemeLightTitle => IsGerman ? "Hell" : "Light";
+    public string ThemeLightSubtitle => IsGerman
+        ? "Helles Erscheinungsbild verwenden"
+        : "Use light appearance";
+
+    public string FormatDetectedSystemTheme(string sourceName, bool isDark) => IsGerman
+        ? $"Erkanntes System-Theme: {sourceName} ({(isDark ? "Dunkel" : "Hell")})"
+        : $"Detected system theme: {sourceName} ({(isDark ? "Dark" : "Light")})";
 
     public string PathEnabledCheckbox => IsGerman ? "Aktiv" : "Enabled";
     public string AddFolderButton => IsGerman ? "📁 Ordner hinzufügen..." : "📁 Add folder...";

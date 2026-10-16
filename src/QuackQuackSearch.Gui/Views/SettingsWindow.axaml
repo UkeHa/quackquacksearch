@@ -4,131 +4,230 @@
         x:Class="QuackQuackSearch.Gui.Views.SettingsWindow"
         Title="QuackQuackSearch - Einstellungen"
         Icon="/Assets/quackquacksearch.png"
-        Width="960" Height="540"
+        Width="960" Height="560"
         MinWidth="960" MinHeight="480"
+        Background="{DynamicResource SystemRegionBrush}"
         WindowStartupLocation="CenterOwner"
         CanResize="True">
 
-    <Grid RowDefinitions="Auto,*,Auto" Margin="16">
+    <Grid RowDefinitions="*,Auto" Margin="16">
 
-        <TextBlock Grid.Row="0"
-                   Name="SectionPathsHeader"
-                   Text="Überwachte Pfade &amp; Ausgeschlossene Unterordner"
-                   FontSize="16"
-                   FontWeight="SemiBold"
-                   Margin="0,0,0,12" />
+        <TabControl Grid.Row="0" Name="SettingsTabControl">
 
-        <Grid Grid.Row="1" ColumnDefinitions="*,16,*">
-            <!-- Left Column: Monitored Paths -->
-            <Grid Grid.Column="0" RowDefinitions="*,Auto">
-                <Border Grid.Row="0"
-                        BorderBrush="{DynamicResource SystemBaseLowColor}"
-                        BorderThickness="1"
-                        CornerRadius="6">
-                    <ListBox Name="PathsListBox"
-                             SelectionMode="Single">
-                        <ListBox.ItemTemplate>
-                            <DataTemplate DataType="m:PathItemViewModel">
-                                <StackPanel Margin="4" Spacing="4">
-                                    <Grid ColumnDefinitions="*,Auto">
-                                        <StackPanel Grid.Column="0" Spacing="2">
-                                            <TextBlock Text="{Binding Path}" FontWeight="Medium" TextTrimming="CharacterEllipsis" />
-                                            <TextBlock Text="{Binding StatusBadgeText}" FontSize="12" Opacity="0.85" TextTrimming="CharacterEllipsis" />
-                                        </StackPanel>
-                                        <CheckBox Grid.Column="1"
-                                                  IsChecked="{Binding Enabled}"
-                                                  Content="{Binding EnabledLabel}"
-                                                  Margin="8,0,0,0"
-                                                  VerticalAlignment="Center" />
-                                    </Grid>
-                                    <ProgressBar IsIndeterminate="True"
-                                                 IsVisible="{Binding IsScanning}"
-                                                 Height="3"
-                                                 MinHeight="3"
-                                                 Margin="0,2,0,0" />
-                                </StackPanel>
-                            </DataTemplate>
-                        </ListBox.ItemTemplate>
-                    </ListBox>
-                </Border>
+            <!-- Tab 1: Pfade / Paths -->
+            <TabItem Name="PathsTabItem" Header="Pfade" FontSize="15">
+                <Grid RowDefinitions="Auto,*" Margin="0,12,0,0">
 
-                <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="8" Margin="0,8,0,0">
-                    <Button Name="AddFolderButton"
-                            Content="📁 Ordner hinzufügen..."
-                            Padding="10,6"
-                            CornerRadius="6" />
-                    <Button Name="RescanFolderButton"
-                            Content="🔄 Neu indexieren"
-                            Padding="10,6"
-                            CornerRadius="6" />
-                    <Button Name="RemoveFolderButton"
-                            Content="🗑️ Entfernen"
-                            Padding="10,6"
-                            CornerRadius="6" />
-                </StackPanel>
-            </Grid>
+                    <TextBlock Grid.Row="0"
+                               Name="SectionPathsHeader"
+                               Text="Überwachte Pfade &amp; Ausgeschlossene Unterordner"
+                               FontSize="16"
+                               FontWeight="SemiBold"
+                               Margin="0,0,0,12" />
 
-            <!-- Right Column: Exclusions for Selected Path -->
-            <Grid Grid.Column="2" RowDefinitions="Auto,*,Auto,Auto,Auto">
-                <StackPanel Grid.Row="0" Margin="0,0,0,8">
-                    <TextBlock Name="ExcludesHeaderLabel" Text="Ausschlüsse (Unterordner / Muster):" FontWeight="SemiBold" />
-                    <TextBlock Name="SelectedPathLabel"
-                               Text="Wähle links einen Pfad aus"
-                               FontSize="12"
-                               Opacity="0.7"
-                               TextTrimming="CharacterEllipsis" />
-                </StackPanel>
+                    <Grid Grid.Row="1" ColumnDefinitions="*,16,*">
+                        <!-- Left Column: Monitored Paths -->
+                        <Grid Grid.Column="0" RowDefinitions="*,Auto">
+                            <Border Grid.Row="0"
+                                    Background="{DynamicResource SystemControlBackgroundAltHighBrush}"
+                                    BorderBrush="{DynamicResource SystemBaseLowColor}"
+                                    BorderThickness="1"
+                                    CornerRadius="6">
+                                <ListBox Name="PathsListBox"
+                                         Background="Transparent"
+                                         SelectionMode="Single">
+                                    <ListBox.ItemTemplate>
+                                        <DataTemplate DataType="m:PathItemViewModel">
+                                            <StackPanel Margin="4" Spacing="4">
+                                                <Grid ColumnDefinitions="*,Auto">
+                                                    <StackPanel Grid.Column="0" Spacing="2">
+                                                        <TextBlock Text="{Binding Path}" FontWeight="Medium" TextTrimming="CharacterEllipsis" />
+                                                        <TextBlock Text="{Binding StatusBadgeText}" FontSize="12" Opacity="0.85" TextTrimming="CharacterEllipsis" />
+                                                    </StackPanel>
+                                                    <CheckBox Grid.Column="1"
+                                                              IsChecked="{Binding Enabled}"
+                                                              Content="{Binding EnabledLabel}"
+                                                              Margin="8,0,0,0"
+                                                              VerticalAlignment="Center" />
+                                                </Grid>
+                                                <ProgressBar IsIndeterminate="True"
+                                                             IsVisible="{Binding IsScanning}"
+                                                             Height="3"
+                                                             MinHeight="3"
+                                                             Margin="0,2,0,0" />
+                                            </StackPanel>
+                                        </DataTemplate>
+                                    </ListBox.ItemTemplate>
+                                </ListBox>
+                            </Border>
 
-                <Border Grid.Row="1"
-                        BorderBrush="{DynamicResource SystemBaseLowColor}"
-                        BorderThickness="1"
-                        CornerRadius="6">
-                    <ListBox Name="ExcludesListBox"
-                             SelectionMode="Single">
-                        <ListBox.ItemTemplate>
-                            <DataTemplate>
-                                <TextBlock Text="{Binding}" Margin="4,2" />
-                            </DataTemplate>
-                        </ListBox.ItemTemplate>
-                    </ListBox>
-                </Border>
+                            <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="8" Margin="0,8,0,0">
+                                <Button Name="AddFolderButton"
+                                        Content="📁 Ordner hinzufügen..."
+                                        Padding="10,6"
+                                        CornerRadius="6" />
+                                <Button Name="RescanFolderButton"
+                                        Content="🔄 Neu indexieren"
+                                        Padding="10,6"
+                                        CornerRadius="6" />
+                                <Button Name="RemoveFolderButton"
+                                        Content="🗑️ Entfernen"
+                                        Padding="10,6"
+                                        CornerRadius="6" />
+                            </StackPanel>
+                        </Grid>
 
-                <Grid Grid.Row="2" ColumnDefinitions="*,Auto" Margin="0,8,0,0">
-                    <TextBox Name="NewExcludeTextBox"
-                             Grid.Column="0"
-                             PlaceholderText="Muster oder Unterordner (z.B. secret/ oder *.tmp)"
-                             CornerRadius="6"
-                             Margin="0,0,8,0" />
-                    <Button Name="AddExcludeTextButton"
-                            Grid.Column="1"
-                            Content="Hinzufügen"
-                            Padding="10,6"
-                            CornerRadius="6" />
+                        <!-- Right Column: Exclusions for Selected Path -->
+                        <Grid Grid.Column="2" RowDefinitions="Auto,*,Auto,Auto,Auto">
+                            <StackPanel Grid.Row="0" Margin="0,0,0,8">
+                                <TextBlock Name="ExcludesHeaderLabel" Text="Ausschlüsse (Unterordner / Muster):" FontWeight="SemiBold" />
+                                <TextBlock Name="SelectedPathLabel"
+                                           Text="Wähle links einen Pfad aus"
+                                           FontSize="12"
+                                           Opacity="0.7"
+                                           TextTrimming="CharacterEllipsis" />
+                            </StackPanel>
+
+                            <Border Grid.Row="1"
+                                    Background="{DynamicResource SystemControlBackgroundAltHighBrush}"
+                                    BorderBrush="{DynamicResource SystemBaseLowColor}"
+                                    BorderThickness="1"
+                                    CornerRadius="6">
+                                <ListBox Name="ExcludesListBox"
+                                         Background="Transparent"
+                                         SelectionMode="Single">
+                                    <ListBox.ItemTemplate>
+                                        <DataTemplate>
+                                            <TextBlock Text="{Binding}" Margin="4,2" />
+                                        </DataTemplate>
+                                    </ListBox.ItemTemplate>
+                                </ListBox>
+                            </Border>
+
+                            <Grid Grid.Row="2" ColumnDefinitions="*,Auto" Margin="0,8,0,0">
+                                <TextBox Name="NewExcludeTextBox"
+                                         Grid.Column="0"
+                                         PlaceholderText="Muster oder Unterordner (z.B. secret/ oder *.tmp)"
+                                         CornerRadius="6"
+                                         Margin="0,0,8,0" />
+                                <Button Name="AddExcludeTextButton"
+                                        Grid.Column="1"
+                                        Content="Hinzufügen"
+                                        Padding="10,6"
+                                        CornerRadius="6" />
+                            </Grid>
+
+                            <TextBlock Grid.Row="3"
+                                       Name="ExcludeErrorLabel"
+                                       Foreground="#ff5555"
+                                       FontSize="12"
+                                       TextWrapping="Wrap"
+                                       Margin="0,4,0,0"
+                                       IsVisible="False" />
+
+                            <StackPanel Grid.Row="4" Orientation="Horizontal" Spacing="8" Margin="0,8,0,0">
+                                <Button Name="ExcludeFolderPickerButton"
+                                        Content="📁 Unterordner wählen..."
+                                        Padding="10,6"
+                                        CornerRadius="6" />
+                                <Button Name="RemoveExcludeButton"
+                                        Content="🗑️ Ausschluss löschen"
+                                        Padding="10,6"
+                                        CornerRadius="6" />
+                            </StackPanel>
+                        </Grid>
+                    </Grid>
                 </Grid>
+            </TabItem>
 
-                <TextBlock Grid.Row="3"
-                           Name="ExcludeErrorLabel"
-                           Foreground="#ff5555"
-                           FontSize="12"
-                           TextWrapping="Wrap"
-                           Margin="0,4,0,0"
-                           IsVisible="False" />
+            <!-- Tab 2: Aussehen / Appearance -->
+            <TabItem Name="AppearanceTabItem" Header="Aussehen" FontSize="15">
+                <StackPanel Margin="0,12,0,0" Spacing="16" MaxWidth="680" HorizontalAlignment="Left">
 
-                <StackPanel Grid.Row="4" Orientation="Horizontal" Spacing="8" Margin="0,8,0,0">
-                    <Button Name="ExcludeFolderPickerButton"
-                            Content="📁 Unterordner wählen..."
-                            Padding="10,6"
-                            CornerRadius="6" />
-                    <Button Name="RemoveExcludeButton"
-                            Content="🗑️ Ausschluss löschen"
-                            Padding="10,6"
-                            CornerRadius="6" />
+                    <StackPanel Spacing="6">
+                        <TextBlock Name="SectionAppearanceHeader"
+                                   Text="Farbschema &amp; Erscheinungsbild"
+                                   FontSize="16"
+                                   FontWeight="SemiBold" />
+                        <TextBlock Name="AppearanceDescriptionLabel"
+                                   Text="Wähle das Erscheinungsbild der Anwendung. Im Modus „Automatisch“ übernimmt QuackQuackSearch die Farben deines Desktop-Themes."
+                                   FontSize="13"
+                                   Opacity="0.8"
+                                   TextWrapping="Wrap" />
+                    </StackPanel>
+
+                    <StackPanel Spacing="10">
+                        <!-- Option: Automatisch -->
+                        <Border Background="{DynamicResource SystemControlBackgroundAltHighBrush}"
+                                BorderBrush="{DynamicResource SystemBaseLowColor}"
+                                BorderThickness="1"
+                                CornerRadius="8"
+                                Padding="14,10">
+                            <RadioButton Name="ThemeAutoRadio" GroupName="ThemeModeGroup" VerticalContentAlignment="Center">
+                                <StackPanel Spacing="2" Margin="6,0,0,0">
+                                    <TextBlock Name="ThemeAutoTitleLabel" Text="Automatisch (System-Theme)" FontWeight="SemiBold" FontSize="14" />
+                                    <TextBlock Name="ThemeAutoSubtitleLabel" Text="Folgt automatisch dem aktuellen Desktop-Farbschema und den Systemfarben" FontSize="12" Opacity="0.75" TextWrapping="Wrap" />
+                                </StackPanel>
+                            </RadioButton>
+                        </Border>
+
+                        <!-- Option: Dunkel -->
+                        <Border Background="{DynamicResource SystemControlBackgroundAltHighBrush}"
+                                BorderBrush="{DynamicResource SystemBaseLowColor}"
+                                BorderThickness="1"
+                                CornerRadius="8"
+                                Padding="14,10">
+                            <RadioButton Name="ThemeDarkRadio" GroupName="ThemeModeGroup" VerticalContentAlignment="Center">
+                                <StackPanel Spacing="2" Margin="6,0,0,0">
+                                    <TextBlock Name="ThemeDarkTitleLabel" Text="Dunkel" FontWeight="SemiBold" FontSize="14" />
+                                    <TextBlock Name="ThemeDarkSubtitleLabel" Text="Dunkles Erscheinungsbild verwenden" FontSize="12" Opacity="0.75" TextWrapping="Wrap" />
+                                </StackPanel>
+                            </RadioButton>
+                        </Border>
+
+                        <!-- Option: Hell -->
+                        <Border Background="{DynamicResource SystemControlBackgroundAltHighBrush}"
+                                BorderBrush="{DynamicResource SystemBaseLowColor}"
+                                BorderThickness="1"
+                                CornerRadius="8"
+                                Padding="14,10">
+                            <RadioButton Name="ThemeLightRadio" GroupName="ThemeModeGroup" VerticalContentAlignment="Center">
+                                <StackPanel Spacing="2" Margin="6,0,0,0">
+                                    <TextBlock Name="ThemeLightTitleLabel" Text="Hell" FontWeight="SemiBold" FontSize="14" />
+                                    <TextBlock Name="ThemeLightSubtitleLabel" Text="Helles Erscheinungsbild verwenden" FontSize="12" Opacity="0.75" TextWrapping="Wrap" />
+                                </StackPanel>
+                            </RadioButton>
+                        </Border>
+                    </StackPanel>
+
+                    <!-- Detected System Theme Info -->
+                    <Border Background="{DynamicResource SystemChromeLowColor}"
+                            BorderBrush="{DynamicResource SystemBaseLowColor}"
+                            BorderThickness="1"
+                            CornerRadius="8"
+                            Padding="14,10">
+                        <Grid ColumnDefinitions="*,Auto">
+                            <TextBlock Grid.Column="0"
+                                       Name="DetectedSystemThemeLabel"
+                                       Text="Erkanntes System-Theme: ..."
+                                       FontSize="12"
+                                       Opacity="0.85"
+                                       VerticalAlignment="Center" />
+                            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center" Margin="12,0,0,0">
+                                <Border Name="SwatchWindow" Width="18" Height="18" CornerRadius="4" BorderBrush="{DynamicResource SystemBaseLowColor}" BorderThickness="1" />
+                                <Border Name="SwatchView" Width="18" Height="18" CornerRadius="4" BorderBrush="{DynamicResource SystemBaseLowColor}" BorderThickness="1" />
+                                <Border Name="SwatchAccent" Width="18" Height="18" CornerRadius="4" BorderBrush="{DynamicResource SystemBaseLowColor}" BorderThickness="1" />
+                            </StackPanel>
+                        </Grid>
+                    </Border>
+
                 </StackPanel>
-            </Grid>
-        </Grid>
+            </TabItem>
+
+        </TabControl>
 
         <!-- Bottom Row: Close Button -->
-        <Grid Grid.Row="2" Margin="0,16,0,0">
+        <Grid Grid.Row="1" Margin="0,16,0,0">
             <Button Name="CloseButton"
                     IsCancel="True"
                     HorizontalAlignment="Right"

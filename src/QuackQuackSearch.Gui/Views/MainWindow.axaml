@@ -8,6 +8,7 @@
         Icon="/Assets/quackquacksearch.png"
         Width="1050" Height="650"
         MinWidth="600" MinHeight="400"
+        Background="{DynamicResource SystemRegionBrush}"
         WindowStartupLocation="CenterScreen">
 
     <Grid RowDefinitions="Auto,Auto,*,Auto">
@@ -59,6 +60,7 @@
         <!-- Results DataGrid -->
         <DataGrid Grid.Row="2"
                   Name="FilesDataGrid"
+                  Background="{DynamicResource SystemControlBackgroundAltHighBrush}"
                   ItemsSource="{Binding Results}"
                   SelectedItem="{Binding SelectedItem, Mode=TwoWay}"
                   AutoGenerateColumns="False"

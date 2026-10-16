@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using Avalonia.Controls;
 using Avalonia.Input;
+using Avalonia.Media;
 using Avalonia.Platform.Storage;
 using Avalonia.Threading;
 using QuackQuackSearch.Core.Config;
@@ -8,6 +9,7 @@ using QuackQuackSearch.Core.Crawler;
 using QuackQuackSearch.Core.DBus;
 using QuackQuackSearch.Gui.Localization;
 using QuackQuackSearch.Gui.Models;
+using QuackQuackSearch.Gui.Theming;
 using Tmds.DBus;
 
 namespace QuackQuackSearch.Gui.Views;
@@ -34,11 +36,19 @@ public partial class SettingsWindow : Window
             _paths.Add(new PathItemViewModel(p));
         }
 
+        var pathsTabItem = this.FindControl<TabItem>("PathsTabItem");
+        if (pathsTabItem != null) pathsTabItem.Header = loc.SettingsTabPaths;
+
+        var appearanceTabItem = this.FindControl<TabItem>("AppearanceTabItem");
+        if (appearanceTabItem != null) appearanceTabItem.Header = loc.SettingsTabAppearance;
+
         var sectionHeader = this.FindControl<TextBlock>("SectionPathsHeader");
         if (sectionHeader != null) sectionHeader.Text = loc.SettingsSectionPathsHeader;
 
         var excludesHeader = this.FindControl<TextBlock>("ExcludesHeaderLabel");
         if (excludesHeader != null) excludesHeader.Text = loc.ExcludesHeader;
+
+        InitializeAppearanceTab(loc);
 
         var pathsListBox = this.FindControl<ListBox>("PathsListBox");
         var excludesListBox = this.FindControl<ListBox>("ExcludesListBox");
@@ -214,6 +224,87 @@ public partial class SettingsWindow : Window
         {
             _statusTimer.Stop();
         };
+    }
+
+    private void InitializeAppearanceTab(Loc loc)
+    {
+        var header = this.FindControl<TextBlock>("SectionAppearanceHeader");
+        if (header != null) header.Text = loc.SettingsSectionAppearanceHeader;
+
+        var desc = this.FindControl<TextBlock>("AppearanceDescriptionLabel");
+        if (desc != null) desc.Text = loc.AppearanceDescription;
+
+        var autoTitle = this.FindControl<TextBlock>("ThemeAutoTitleLabel");
+        if (autoTitle != null) autoTitle.Text = loc.ThemeAutoTitle;
+        var autoSub = this.FindControl<TextBlock>("ThemeAutoSubtitleLabel");
+        if (autoSub != null) autoSub.Text = loc.ThemeAutoSubtitle;
+
+        var darkTitle = this.FindControl<TextBlock>("ThemeDarkTitleLabel");
+        if (darkTitle != null) darkTitle.Text = loc.ThemeDarkTitle;
+        var darkSub = this.FindControl<TextBlock>("ThemeDarkSubtitleLabel");
+        if (darkSub != null) darkSub.Text = loc.ThemeDarkSubtitle;
+
+        var lightTitle = this.FindControl<TextBlock>("ThemeLightTitleLabel");
+        if (lightTitle != null) lightTitle.Text = loc.ThemeLightTitle;
+        var lightSub = this.FindControl<TextBlock>("ThemeLightSubtitleLabel");
+        if (lightSub != null) lightSub.Text = loc.ThemeLightSubtitle;
+
+        var detectedPalette = SystemThemeDetector.DetectSystemPalette();
+        var detectedLabel = this.FindControl<TextBlock>("DetectedSystemThemeLabel");
+        if (detectedLabel != null)
+        {
+            detectedLabel.Text = loc.FormatDetectedSystemTheme(detectedPalette.SourceName, detectedPalette.IsDark);
+        }
+
+        var swatchWindow = this.FindControl<Border>("SwatchWindow");
+        if (swatchWindow != null) swatchWindow.Background = new SolidColorBrush(detectedPalette.WindowBackground);
+        var swatchView = this.FindControl<Border>("SwatchView");
+        if (swatchView != null) swatchView.Background = new SolidColorBrush(detectedPalette.ViewBackground);
+        var swatchAccent = this.FindControl<Border>("SwatchAccent");
+        if (swatchAccent != null) swatchAccent.Background = new SolidColorBrush(detectedPalette.Accent);
+
+        var autoRadio = this.FindControl<RadioButton>("ThemeAutoRadio");
+        var darkRadio = this.FindControl<RadioButton>("ThemeDarkRadio");
+        var lightRadio = this.FindControl<RadioButton>("ThemeLightRadio");
+
+        string mode = (_config.Appearance?.ThemeMode ?? "auto").Trim().ToLowerInvariant();
+        if (mode == "dark" && darkRadio != null)
+            darkRadio.IsChecked = true;
+        else if (mode == "light" && lightRadio != null)
+            lightRadio.IsChecked = true;
+        else if (autoRadio != null)
+            autoRadio.IsChecked = true;
+
+        if (autoRadio != null)
+        {
+            autoRadio.IsCheckedChanged += (_, _) =>
+            {
+                if (autoRadio.IsChecked == true) SetThemeMode("auto");
+            };
+        }
+
+        if (darkRadio != null)
+        {
+            darkRadio.IsCheckedChanged += (_, _) =>
+            {
+                if (darkRadio.IsChecked == true) SetThemeMode("dark");
+            };
+        }
+
+        if (lightRadio != null)
+        {
+            lightRadio.IsCheckedChanged += (_, _) =>
+            {
+                if (lightRadio.IsChecked == true) SetThemeMode("light");
+            };
+        }
+    }
+
+    private void SetThemeMode(string mode)
+    {
+        _config.Appearance.ThemeMode = mode;
+        ConfigManager.Save(_config);
+        App.ApplyTheme(mode);
     }
 
     private async Task SaveAndCloseAsync()

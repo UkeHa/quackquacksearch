@@ -15,6 +15,15 @@ public sealed class QuackConfig
 
     [JsonPropertyName("krunner")]
     public KRunnerConfig KRunner { get; set; } = new();
+
+    [JsonPropertyName("appearance")]
+    public AppearanceConfig Appearance { get; set; } = new();
+}
+
+public sealed class AppearanceConfig
+{
+    [JsonPropertyName("themeMode")]
+    public string ThemeMode { get; set; } = "auto"; // "auto", "dark", or "light"
 }
 
 public sealed class IndexingConfig
