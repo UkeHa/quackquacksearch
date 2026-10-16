@@ -130,6 +130,7 @@ Type=Application
 Categories=Utility;Core;Filesystem;
 Keywords=search;files;find;everything;
 StartupNotify=true
+StartupWMClass=quackquacksearch-gui
 X-KDE-Shortcuts=Meta+Shift+F
 EOF
 

@@ -5,6 +5,7 @@
         x:Class="QuackQuackSearch.Gui.Views.MainWindow"
         x:DataType="vm:MainWindowViewModel"
         Title="QuackQuackSearch"
+        Icon="/Assets/quackquacksearch.png"
         Width="1050" Height="650"
         MinWidth="600" MinHeight="400"
         WindowStartupLocation="CenterScreen">

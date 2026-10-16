@@ -3,6 +3,7 @@
         xmlns:m="using:QuackQuackSearch.Gui.Models"
         x:Class="QuackQuackSearch.Gui.Views.SettingsWindow"
         Title="QuackQuackSearch - Einstellungen"
+        Icon="/Assets/quackquacksearch.png"
         Width="960" Height="540"
         MinWidth="960" MinHeight="480"
         WindowStartupLocation="CenterOwner"
