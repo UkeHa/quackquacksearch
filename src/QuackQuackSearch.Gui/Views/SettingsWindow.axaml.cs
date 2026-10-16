@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using Avalonia.Controls;
+using Avalonia.Input;
 using Avalonia.Platform.Storage;
 using Avalonia.Threading;
 using QuackQuackSearch.Core.Config;
@@ -18,6 +19,7 @@ public partial class SettingsWindow : Window
     private readonly ObservableCollection<string> _currentExcludes = [];
     private readonly DispatcherTimer _statusTimer;
     private bool _isPollingStatus;
+    private bool _isClosing;
 
     public SettingsWindow()
     {
@@ -184,27 +186,17 @@ public partial class SettingsWindow : Window
         if (closeBtn != null)
         {
             closeBtn.Content = loc.CloseButton;
-            closeBtn.Click += async (_, _) =>
-            {
-                _statusTimer?.Stop();
-                ConfigManager.Save(_config);
-                try
-                {
-                    var conn = Connection.Session;
-                    await conn.ConnectAsync();
-                    if (await conn.IsServiceActiveAsync("org.quackquacksearch.Daemon"))
-                    {
-                        var daemon = conn.CreateProxy<IDaemonService>("org.quackquacksearch.Daemon", "/org/quackquacksearch/Daemon");
-                        foreach (var p in _paths)
-                        {
-                            await daemon.SetPathEnabledAsync(p.Path, p.Enabled);
-                        }
-                    }
-                }
-                catch { }
-                Close();
-            };
+            closeBtn.Click += async (_, _) => await SaveAndCloseAsync();
         }
+
+        KeyDown += async (_, e) =>
+        {
+            if (e.Key == Key.Escape)
+            {
+                e.Handled = true;
+                await SaveAndCloseAsync();
+            }
+        };
 
         _statusTimer = new DispatcherTimer
         {
@@ -222,6 +214,30 @@ public partial class SettingsWindow : Window
         {
             _statusTimer.Stop();
         };
+    }
+
+    private async Task SaveAndCloseAsync()
+    {
+        if (_isClosing) return;
+        _isClosing = true;
+
+        _statusTimer?.Stop();
+        ConfigManager.Save(_config);
+        try
+        {
+            var conn = Connection.Session;
+            await conn.ConnectAsync();
+            if (await conn.IsServiceActiveAsync("org.quackquacksearch.Daemon"))
+            {
+                var daemon = conn.CreateProxy<IDaemonService>("org.quackquacksearch.Daemon", "/org/quackquacksearch/Daemon");
+                foreach (var p in _paths)
+                {
+                    await daemon.SetPathEnabledAsync(p.Path, p.Enabled);
+                }
+            }
+        }
+        catch { }
+        Close();
     }
 
     private async Task RefreshPathStatusesAsync()

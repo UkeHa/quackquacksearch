@@ -130,6 +130,7 @@
         <!-- Bottom Row: Close Button -->
         <Grid Grid.Row="2" Margin="0,16,0,0">
             <Button Name="CloseButton"
+                    IsCancel="True"
                     HorizontalAlignment="Right"
                     Content="Schließen"
                     Padding="16,6"
