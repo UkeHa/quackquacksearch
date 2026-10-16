@@ -249,13 +249,16 @@ public partial class SettingsWindow : Window
 
         if (folders.Count > 0)
         {
-            string localPath = folders[0].Path.LocalPath;
-            if (!_paths.Any(p => p.Path.Equals(localPath, StringComparison.OrdinalIgnoreCase)))
+            string localPath = Path.GetFullPath(folders[0].Path.LocalPath).TrimEnd(Path.DirectorySeparatorChar);
+            if (string.IsNullOrEmpty(localPath)) localPath = "/";
+
+            if (!_paths.Any(p => Path.GetFullPath(p.Path).TrimEnd(Path.DirectorySeparatorChar).Equals(localPath, StringComparison.Ordinal)))
             {
+                string detectedMode = DetectRecommendedMode(localPath);
                 var entry = new PathConfigEntry
                 {
                     Path = localPath,
-                    Type = "local",
+                    Type = detectedMode,
                     Enabled = true
                 };
                 _paths.Add(entry);
@@ -270,12 +273,36 @@ public partial class SettingsWindow : Window
                     if (await conn.IsServiceActiveAsync("org.quackquacksearch.Daemon"))
                     {
                         var daemon = conn.CreateProxy<IDaemonService>("org.quackquacksearch.Daemon", "/org/quackquacksearch/Daemon");
-                        await daemon.AddPathAsync(localPath, "local");
+                        await daemon.AddPathAsync(localPath, detectedMode);
                     }
                 }
                 catch { }
             }
         }
+    }
+
+    private static string DetectRecommendedMode(string path)
+    {
+        try
+        {
+            var mounts = Core.System.MountScanner.ScanMounts();
+            foreach (var m in mounts)
+            {
+                if (m.SuggestedMonitoringMode == "network")
+                {
+                    string mp = m.MountPoint.TrimEnd('/');
+                    if (path.Equals(mp, StringComparison.Ordinal) ||
+                        path.StartsWith(mp + "/", StringComparison.Ordinal) ||
+                        mp.StartsWith(path + "/", StringComparison.Ordinal))
+                    {
+                        return "network";
+                    }
+                }
+            }
+        }
+        catch { }
+
+        return "local";
     }
 
     private async Task RemoveSelectedFolderAsync()

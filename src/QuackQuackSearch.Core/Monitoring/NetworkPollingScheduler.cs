@@ -140,21 +140,33 @@ public sealed class NetworkPollingScheduler : IDisposable
             }
         }
 
-        int timeoutSec = entry.TimeoutSeconds > 0 ? entry.TimeoutSeconds : 4;
-        using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        timeoutCts.CancelAfter(TimeSpan.FromSeconds(timeoutSec));
+        int reachabilityTimeoutSec = entry.TimeoutSeconds > 0 ? entry.TimeoutSeconds : 5;
+        int crawlTimeoutSec = Math.Max(reachabilityTimeoutSec * 20, 120);
 
         try
         {
             UpdateStatus(status, NetworkShareState.Scanning, null);
 
+            using (var reachabilityCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken))
+            {
+                reachabilityCts.CancelAfter(TimeSpan.FromSeconds(reachabilityTimeoutSec));
+                await Task.Run(() =>
+                {
+                    if (!Directory.Exists(entry.Path))
+                    {
+                        throw new DirectoryNotFoundException($"Network path inaccessible: {entry.Path}");
+                    }
+                    // Touch root directory enumeration to trigger any systemd automount within reachability timeout
+                    using var enumerator = Directory.EnumerateFileSystemEntries(entry.Path).GetEnumerator();
+                    _ = enumerator.MoveNext();
+                }, reachabilityCts.Token).ConfigureAwait(false);
+            }
+
+            using var crawlCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            crawlCts.CancelAfter(TimeSpan.FromSeconds(crawlTimeoutSec));
+
             await Task.Run(async () =>
             {
-                if (!Directory.Exists(entry.Path))
-                {
-                    throw new DirectoryNotFoundException($"Network path inaccessible: {entry.Path}");
-                }
-
                 var stagedItems = new List<DiscoveredItem>();
                 var stageLock = new Lock();
                 var crawler = new FastFileSystemCrawler(_ignoreMatcher, maxDegreeOfParallelism: 2);
@@ -165,11 +177,11 @@ public sealed class NetworkPollingScheduler : IDisposable
                         stagedItems.AddRange(batch);
                     }
                     return Task.CompletedTask;
-                }, cancellationToken: timeoutCts.Token).ConfigureAwait(false);
+                }, cancellationToken: crawlCts.Token).ConfigureAwait(false);
 
-                timeoutCts.Token.ThrowIfCancellationRequested();
+                crawlCts.Token.ThrowIfCancellationRequested();
                 _engine.ReplaceSubtree(entry.Path, stagedItems);
-            }, timeoutCts.Token).ConfigureAwait(false);
+            }, crawlCts.Token).ConfigureAwait(false);
 
             lock (_lock)
             {
@@ -179,7 +191,7 @@ public sealed class NetworkPollingScheduler : IDisposable
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
-            UpdateStatus(status, NetworkShareState.Offline, $"Timeout after {timeoutSec}s. Share is unreachable or slow.");
+            UpdateStatus(status, NetworkShareState.Offline, $"Timeout ({reachabilityTimeoutSec}s). Share is unreachable or slow.");
         }
         catch (Exception ex)
         {
