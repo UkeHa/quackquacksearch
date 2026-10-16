@@ -99,4 +99,14 @@ public class FuzzyMatcherTests
         bool matchedSame = FuzzyMatcher.TryMatch("file1.txt".AsSpan(), "file1".AsSpan(), out _);
         matchedSame.Should().BeTrue();
     }
+
+    [Fact]
+    public void OversizedInputs_ShouldNotOverflowStack()
+    {
+        string hugeTarget = new string('a', 4096) + "123";
+        string hugeQuery = new string('a', 4096) + "124";
+
+        bool matched = FuzzyMatcher.TryMatch(hugeTarget.AsSpan(), hugeQuery.AsSpan(), out _);
+        matched.Should().BeFalse();
+    }
 }

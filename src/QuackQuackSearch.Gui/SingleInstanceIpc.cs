@@ -55,6 +55,14 @@ public sealed class SingleInstanceIpc : IDisposable
 
             _listener = new Socket(AddressFamily.Unix, SocketType.Stream, ProtocolType.Unspecified);
             _listener.Bind(new UnixDomainSocketEndPoint(_socketPath));
+            if (OperatingSystem.IsLinux())
+            {
+                try
+                {
+                    File.SetUnixFileMode(_socketPath, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+                }
+                catch { }
+            }
             _listener.Listen(5);
 
             _cts = new CancellationTokenSource();

@@ -52,8 +52,32 @@ public class PersistenceAndMountTests
         mounts.Should().NotBeNull();
         mounts.Should().NotBeEmpty();
 
-        // System should have at least root "/" or "/home"
-        mounts.Should().Contain(m => m.MountPoint == "/" || m.MountPoint == "/home");
+        // System (or container/sandbox) should have at least root "/", "/home*", or "/etc"
+        mounts.Should().Contain(m => m.MountPoint == "/" || m.MountPoint.StartsWith("/home") || m.MountPoint == "/etc");
+    }
+
+    [Fact]
+    public void MountScanner_ShouldHandleEmptyDeviceAndOctalEscapes()
+    {
+        string tempMounts = Path.Combine(Path.GetTempPath(), $"test_mounts_{Guid.NewGuid():N}");
+        try
+        {
+            File.WriteAllLines(tempMounts, [
+                " / tmpfs ro,relatime 0 0",
+                "/dev/nvme0n1p2 /home/user/My\\040Documents btrfs rw,relatime 0 0",
+                "//192.168.1.10/share /mnt/nas cifs rw 0 0"
+            ]);
+
+            var mounts = MountScanner.ScanMounts(tempMounts);
+            // The tmpfs root mount with empty device must be ignored rather than shifting columns
+            mounts.Should().NotContain(m => m.MountPoint == "tmpfs");
+            mounts.Should().Contain(m => m.MountPoint == "/home/user/My Documents" && m.Type == MountType.Local);
+            mounts.Should().Contain(m => m.MountPoint == "/mnt/nas" && m.Type == MountType.Network);
+        }
+        finally
+        {
+            if (File.Exists(tempMounts)) File.Delete(tempMounts);
+        }
     }
 
     [Fact]

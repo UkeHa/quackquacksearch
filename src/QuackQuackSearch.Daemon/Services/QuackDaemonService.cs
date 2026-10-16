@@ -14,10 +14,12 @@ public sealed class QuackDaemonService : IDaemonService, IDisposable
 {
     private readonly SearchIndexEngine _engine;
     private readonly QuackConfig _config;
-    private IgnoreMatcher _ignoreMatcher;
+    private volatile IgnoreMatcher _ignoreMatcher;
     private readonly LocalInotifyWatcher _inotifyWatcher;
     private readonly NetworkPollingScheduler _networkPoller;
     private readonly System.Timers.Timer _snapshotTimer;
+    private readonly SemaphoreSlim _configLock = new(1, 1);
+    private readonly SemaphoreSlim _snapshotLock = new(1, 1);
     private readonly DateTimeOffset _startTime = DateTimeOffset.UtcNow;
     private bool _isDisposed;
 
@@ -50,6 +52,14 @@ public sealed class QuackDaemonService : IDaemonService, IDisposable
         return new IgnoreMatcher(config.Indexing.GlobalExcludes, pathExcludes);
     }
 
+    private void RefreshIgnoreMatcherUnsafe()
+    {
+        var matcher = CreateCombinedIgnoreMatcher(_config);
+        _ignoreMatcher = matcher;
+        _inotifyWatcher.UpdateIgnoreMatcher(matcher);
+        _networkPoller.UpdateIgnoreMatcher(matcher);
+    }
+
     public async Task InitializeAsync(CancellationToken cancellationToken = default)
     {
         Console.WriteLine("[Daemon] Checking for cached index snapshot...");
@@ -80,12 +90,23 @@ public sealed class QuackDaemonService : IDaemonService, IDisposable
 
     private void SetupMonitoring()
     {
-        _networkPoller.SetPaths(_config.Paths);
+        List<PathConfigEntry> pathsSnapshot;
+        _configLock.Wait();
+        try
+        {
+            pathsSnapshot = [.. _config.Paths];
+        }
+        finally
+        {
+            _configLock.Release();
+        }
+
+        _networkPoller.SetPaths(pathsSnapshot);
         _networkPoller.Start();
 
-        Task.Run(() =>
+        _ = Task.Run(() =>
         {
-            var localPaths = _config.Paths.Where(p => p.Type.Equals("local", StringComparison.OrdinalIgnoreCase) && p.Enabled);
+            var localPaths = pathsSnapshot.Where(p => p.Type.Equals("local", StringComparison.OrdinalIgnoreCase) && p.Enabled);
             foreach (var p in localPaths)
             {
                 if (Directory.Exists(p.Path))
@@ -100,9 +121,20 @@ public sealed class QuackDaemonService : IDaemonService, IDisposable
 
     private async Task CrawlConfiguredPathsAsync(CancellationToken cancellationToken)
     {
+        List<PathConfigEntry> enabledPaths;
+        await _configLock.WaitAsync(cancellationToken);
+        try
+        {
+            enabledPaths = _config.Paths.Where(p => p.Enabled).ToList();
+        }
+        finally
+        {
+            _configLock.Release();
+        }
+
         var crawler = new FastFileSystemCrawler(_ignoreMatcher, _config.Indexing.MaxParallelThreads);
 
-        foreach (var pathEntry in _config.Paths.Where(p => p.Enabled))
+        foreach (var pathEntry in enabledPaths)
         {
             if (Directory.Exists(pathEntry.Path))
             {
@@ -126,21 +158,31 @@ public sealed class QuackDaemonService : IDaemonService, IDisposable
 
     public Task<SearchResultDto[]> SearchWithOptionsAsync(string query, int maxResults, bool fuzzy)
     {
-        var options = new SearchOptions
-        {
-            MaxResults = maxResults > 0 ? maxResults : 50,
-            IncludeHidden = _config.Indexing.IndexHiddenFiles,
-            IncludeDirectories = true,
-            Fuzzy = fuzzy
-        };
+        int limit = maxResults > 0 ? maxResults : 50;
+        IReadOnlyList<SearchResult> results;
 
-        var results = _engine.Search(query, options);
+        if (string.IsNullOrWhiteSpace(query))
+        {
+            results = _engine.GetRecentEntries(limit, _config.Indexing.IndexHiddenFiles, includeDirectories: true);
+        }
+        else
+        {
+            var options = new SearchOptions
+            {
+                MaxResults = limit,
+                IncludeHidden = _config.Indexing.IndexHiddenFiles,
+                IncludeDirectories = true,
+                Fuzzy = fuzzy
+            };
+            results = _engine.Search(query, options);
+        }
+
         var dtos = results.Select(r => new SearchResultDto
         {
             FullPath = r.FullPath,
             FileName = r.FileName,
             Size = r.Size,
-            ModifiedTime = (uint)r.ModifiedTime.ToUnixTimeSeconds(),
+            ModifiedTime = (uint)Math.Clamp(r.ModifiedTime.ToUnixTimeSeconds(), 0L, uint.MaxValue),
             IsDirectory = r.IsDirectory,
             Score = r.Score
         }).ToArray();
@@ -153,23 +195,38 @@ public sealed class QuackDaemonService : IDaemonService, IDisposable
         if (string.IsNullOrWhiteSpace(path) || !Directory.Exists(path))
             return false;
 
-        string normalized = Path.GetFullPath(path);
-        if (_config.Paths.Any(p => p.Path.Equals(normalized, StringComparison.OrdinalIgnoreCase)))
-            return true;
+        string normalized = Path.GetFullPath(path).TrimEnd(Path.DirectorySeparatorChar);
+        if (string.IsNullOrEmpty(normalized)) normalized = "/";
 
-        var entry = new PathConfigEntry
+        PathConfigEntry entry;
+        List<PathConfigEntry> pathsSnapshot;
+
+        await _configLock.WaitAsync();
+        try
         {
-            Path = normalized,
-            Type = type.ToLowerInvariant() == "network" ? "network" : "local",
-            Enabled = true
-        };
+            if (_config.Paths.Any(p => Path.GetFullPath(p.Path).TrimEnd(Path.DirectorySeparatorChar).Equals(normalized, StringComparison.Ordinal)))
+                return true;
 
-        _config.Paths.Add(entry);
-        ConfigManager.Save(_config);
+            entry = new PathConfigEntry
+            {
+                Path = normalized,
+                Type = type.Equals("network", StringComparison.OrdinalIgnoreCase) ? "network" : "local",
+                Enabled = true
+            };
+
+            _config.Paths.Add(entry);
+            ConfigManager.Save(_config);
+            RefreshIgnoreMatcherUnsafe();
+            pathsSnapshot = [.. _config.Paths];
+        }
+        finally
+        {
+            _configLock.Release();
+        }
 
         if (entry.Type == "local")
         {
-            var crawler = new FastFileSystemCrawler(_ignoreMatcher);
+            var crawler = new FastFileSystemCrawler(_ignoreMatcher, _config.Indexing.MaxParallelThreads);
             await crawler.CrawlAsync(normalized, batch =>
             {
                 _engine.BulkAdd(batch);
@@ -179,7 +236,7 @@ public sealed class QuackDaemonService : IDaemonService, IDisposable
         }
         else
         {
-            _networkPoller.SetPaths(_config.Paths);
+            _networkPoller.SetPaths(pathsSnapshot);
         }
 
         await SaveSnapshotSafeAsync();
@@ -188,17 +245,37 @@ public sealed class QuackDaemonService : IDaemonService, IDisposable
 
     public async Task<bool> RemovePathAsync(string path)
     {
-        string normalized = Path.GetFullPath(path);
-        int removedCount = _config.Paths.RemoveAll(p => p.Path.Equals(normalized, StringComparison.OrdinalIgnoreCase));
+        if (string.IsNullOrWhiteSpace(path)) return false;
+
+        string normalized = Path.GetFullPath(path).TrimEnd(Path.DirectorySeparatorChar);
+        if (string.IsNullOrEmpty(normalized)) normalized = "/";
+
+        int removedCount;
+        List<PathConfigEntry> pathsSnapshot;
+
+        await _configLock.WaitAsync();
+        try
+        {
+            removedCount = _config.Paths.RemoveAll(p =>
+                Path.GetFullPath(p.Path).TrimEnd(Path.DirectorySeparatorChar).Equals(normalized, StringComparison.Ordinal));
+            if (removedCount > 0)
+            {
+                ConfigManager.Save(_config);
+                RefreshIgnoreMatcherUnsafe();
+            }
+            pathsSnapshot = [.. _config.Paths];
+        }
+        finally
+        {
+            _configLock.Release();
+        }
 
         if (removedCount > 0)
         {
-            ConfigManager.Save(_config);
-
             _inotifyWatcher.RemoveWatchTree(normalized);
             _engine.RemoveSubtree(normalized);
             _engine.Remove(normalized);
-            _networkPoller.SetPaths(_config.Paths);
+            _networkPoller.SetPaths(pathsSnapshot);
 
             await SaveSnapshotSafeAsync();
             Console.WriteLine($"[Daemon] Removed path and purged subtree: {normalized}. Remaining files: {_engine.TotalFiles:N0}");
@@ -210,29 +287,45 @@ public sealed class QuackDaemonService : IDaemonService, IDisposable
 
     public async Task<bool> SetPathEnabledAsync(string path, bool enabled)
     {
-        string normalized = Path.GetFullPath(path);
-        var entry = _config.Paths.FirstOrDefault(p => p.Path.Equals(normalized, StringComparison.OrdinalIgnoreCase));
-        if (entry == null) return false;
+        if (string.IsNullOrWhiteSpace(path)) return false;
 
-        if (entry.Enabled == enabled) return true;
+        string normalized = Path.GetFullPath(path).TrimEnd(Path.DirectorySeparatorChar);
+        if (string.IsNullOrEmpty(normalized)) normalized = "/";
 
-        entry.Enabled = enabled;
-        ConfigManager.Save(_config);
+        string entryType;
+        List<PathConfigEntry> pathsSnapshot;
+
+        await _configLock.WaitAsync();
+        try
+        {
+            var entry = FindEntryUnsafe(normalized);
+            if (entry == null) return false;
+            if (entry.Enabled == enabled) return true;
+
+            entry.Enabled = enabled;
+            entryType = entry.Type;
+            ConfigManager.Save(_config);
+            pathsSnapshot = [.. _config.Paths];
+        }
+        finally
+        {
+            _configLock.Release();
+        }
 
         if (!enabled)
         {
             _inotifyWatcher.RemoveWatchTree(normalized);
             _engine.RemoveSubtree(normalized);
             _engine.Remove(normalized);
-            _networkPoller.SetPaths(_config.Paths);
+            _networkPoller.SetPaths(pathsSnapshot);
             await SaveSnapshotSafeAsync();
             Console.WriteLine($"[Daemon] Disabled path and purged subtree: {normalized}. Remaining files: {_engine.TotalFiles:N0}");
         }
         else
         {
-            if (entry.Type == "local")
+            if (entryType == "local")
             {
-                var crawler = new FastFileSystemCrawler(_ignoreMatcher);
+                var crawler = new FastFileSystemCrawler(_ignoreMatcher, _config.Indexing.MaxParallelThreads);
                 await crawler.CrawlAsync(normalized, batch =>
                 {
                     _engine.BulkAdd(batch);
@@ -242,7 +335,7 @@ public sealed class QuackDaemonService : IDaemonService, IDisposable
             }
             else
             {
-                _networkPoller.SetPaths(_config.Paths);
+                _networkPoller.SetPaths(pathsSnapshot);
             }
             await SaveSnapshotSafeAsync();
             Console.WriteLine($"[Daemon] Enabled and re-indexed path: {normalized}. Total files: {_engine.TotalFiles:N0}");
@@ -251,61 +344,88 @@ public sealed class QuackDaemonService : IDaemonService, IDisposable
         return true;
     }
 
-    public Task<PathInfoDto[]> ListPathsAsync()
+    public async Task<PathInfoDto[]> ListPathsAsync()
     {
-        var netStatuses = _networkPoller.GetStatuses().ToDictionary(s => s.Path, s => s.State.ToString());
+        var netStatuses = _networkPoller.GetStatuses().ToDictionary(s => s.Path, s => s.State.ToString(), StringComparer.Ordinal);
 
-        var infos = _config.Paths.Select(p =>
+        await _configLock.WaitAsync();
+        try
         {
-            string status = "Active";
-            if (!p.Enabled) status = "Disabled";
-            else if (p.Type == "network" && netStatuses.TryGetValue(p.Path, out string? netState))
+            return _config.Paths.Select(p =>
             {
-                status = netState;
-            }
+                string status = "Active";
+                if (!p.Enabled) status = "Disabled";
+                else if (p.Type == "network" && netStatuses.TryGetValue(p.Path, out string? netState))
+                {
+                    status = netState;
+                }
 
-            return new PathInfoDto
-            {
-                Path = p.Path,
-                Type = p.Type,
-                Enabled = p.Enabled,
-                Status = status,
-                ExcludesCsv = string.Join(";", p.CustomExcludes ?? [])
-            };
-        }).ToArray();
-
-        return Task.FromResult(infos);
+                return new PathInfoDto
+                {
+                    Path = p.Path,
+                    Type = p.Type,
+                    Enabled = p.Enabled,
+                    Status = status,
+                    ExcludesCsv = string.Join(";", p.CustomExcludes ?? [])
+                };
+            }).ToArray();
+        }
+        finally
+        {
+            _configLock.Release();
+        }
     }
 
-    private PathConfigEntry? FindEntry(string rootPath)
+    private PathConfigEntry? FindEntryUnsafe(string rootPath)
     {
         string normTrimmed = Path.GetFullPath(rootPath).TrimEnd(Path.DirectorySeparatorChar);
-        return _config.Paths.FirstOrDefault(p => Path.GetFullPath(p.Path).TrimEnd(Path.DirectorySeparatorChar).Equals(normTrimmed, StringComparison.OrdinalIgnoreCase));
+        if (string.IsNullOrEmpty(normTrimmed)) normTrimmed = "/";
+        return _config.Paths.FirstOrDefault(p =>
+        {
+            string pNorm = Path.GetFullPath(p.Path).TrimEnd(Path.DirectorySeparatorChar);
+            if (string.IsNullOrEmpty(pNorm)) pNorm = "/";
+            return pNorm.Equals(normTrimmed, StringComparison.Ordinal);
+        });
     }
 
     public async Task<bool> AddExcludeAsync(string rootPath, string excludePattern)
     {
         if (string.IsNullOrWhiteSpace(excludePattern)) return false;
 
-        var entry = FindEntry(rootPath);
-        if (entry == null) return false;
+        bool added = false;
+        string entryPath = string.Empty;
 
-        if (!PathExclusionValidator.IsValid(entry.Path, excludePattern, out string? error))
+        await _configLock.WaitAsync();
+        try
         {
-            Console.WriteLine($"[Daemon] Rejected exclude '{excludePattern}' for '{entry.Path}': {error}");
-            return false;
+            var entry = FindEntryUnsafe(rootPath);
+            if (entry == null) return false;
+
+            if (!PathExclusionValidator.IsValid(entry.Path, excludePattern, out string? error))
+            {
+                Console.WriteLine($"[Daemon] Rejected exclude '{excludePattern}' for '{entry.Path}': {error}");
+                return false;
+            }
+
+            entryPath = entry.Path;
+            entry.CustomExcludes ??= [];
+            if (!entry.CustomExcludes.Contains(excludePattern, StringComparer.Ordinal))
+            {
+                entry.CustomExcludes.Add(excludePattern);
+                ConfigManager.Save(_config);
+                RefreshIgnoreMatcherUnsafe();
+                added = true;
+            }
+        }
+        finally
+        {
+            _configLock.Release();
         }
 
-        entry.CustomExcludes ??= [];
-        if (!entry.CustomExcludes.Contains(excludePattern, StringComparer.OrdinalIgnoreCase))
+        if (added)
         {
-            entry.CustomExcludes.Add(excludePattern);
-            ConfigManager.Save(_config);
-
-            _ignoreMatcher = CreateCombinedIgnoreMatcher(_config);
             int purged = _engine.PurgeIgnored(_ignoreMatcher);
-            Console.WriteLine($"[Daemon] Added exclude '{excludePattern}' to '{entry.Path}'. Purged {purged:N0} indexed entries.");
-
+            Console.WriteLine($"[Daemon] Added exclude '{excludePattern}' to '{entryPath}'. Purged {purged:N0} indexed entries.");
             await SaveSnapshotSafeAsync();
         }
 
@@ -316,17 +436,31 @@ public sealed class QuackDaemonService : IDaemonService, IDisposable
     {
         if (string.IsNullOrWhiteSpace(excludePattern)) return false;
 
-        var entry = FindEntry(rootPath);
-        if (entry == null || entry.CustomExcludes == null) return false;
+        string? entryPath = null;
+        string? entryType = null;
 
-        int removed = entry.CustomExcludes.RemoveAll(x => x.Equals(excludePattern, StringComparison.OrdinalIgnoreCase));
-        if (removed > 0)
+        await _configLock.WaitAsync();
+        try
         {
-            ConfigManager.Save(_config);
-            _ignoreMatcher = CreateCombinedIgnoreMatcher(_config);
+            var entry = FindEntryUnsafe(rootPath);
+            if (entry == null || entry.CustomExcludes == null) return false;
 
-            string entryPath = entry.Path;
-            // Re-crawl rootPath to restore files
+            int removed = entry.CustomExcludes.RemoveAll(x => x.Equals(excludePattern, StringComparison.Ordinal));
+            if (removed > 0)
+            {
+                ConfigManager.Save(_config);
+                RefreshIgnoreMatcherUnsafe();
+                entryPath = entry.Path;
+                entryType = entry.Type;
+            }
+        }
+        finally
+        {
+            _configLock.Release();
+        }
+
+        if (entryPath != null)
+        {
             _ = Task.Run(async () =>
             {
                 var crawler = new FastFileSystemCrawler(_ignoreMatcher, _config.Indexing.MaxParallelThreads);
@@ -335,6 +469,10 @@ public sealed class QuackDaemonService : IDaemonService, IDisposable
                     _engine.BulkAdd(batch);
                     return Task.CompletedTask;
                 });
+                if (string.Equals(entryType, "local", StringComparison.OrdinalIgnoreCase))
+                {
+                    _inotifyWatcher.AddWatchTree(entryPath);
+                }
                 await SaveSnapshotSafeAsync();
                 Console.WriteLine($"[Daemon] Removed exclude '{excludePattern}' from '{entryPath}' and re-indexed path.");
             });
@@ -345,27 +483,47 @@ public sealed class QuackDaemonService : IDaemonService, IDisposable
         return false;
     }
 
-    public Task<string[]> GetPathExcludesAsync(string rootPath)
+    public async Task<string[]> GetPathExcludesAsync(string rootPath)
     {
-        var entry = FindEntry(rootPath);
-        return Task.FromResult(entry?.CustomExcludes?.ToArray() ?? Array.Empty<string>());
+        await _configLock.WaitAsync();
+        try
+        {
+            var entry = FindEntryUnsafe(rootPath);
+            return entry?.CustomExcludes?.ToArray() ?? Array.Empty<string>();
+        }
+        finally
+        {
+            _configLock.Release();
+        }
     }
 
     public async Task<bool> SetPathExcludesAsync(string rootPath, string[] excludes)
     {
-        var entry = FindEntry(rootPath);
-        if (entry == null) return false;
+        string entryPath;
+        string entryType;
 
-        entry.CustomExcludes = excludes
-            .Where(e => !string.IsNullOrWhiteSpace(e) && PathExclusionValidator.IsValid(entry.Path, e, out _))
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToList();
-        ConfigManager.Save(_config);
+        await _configLock.WaitAsync();
+        try
+        {
+            var entry = FindEntryUnsafe(rootPath);
+            if (entry == null) return false;
 
-        _ignoreMatcher = CreateCombinedIgnoreMatcher(_config);
+            entryPath = entry.Path;
+            entryType = entry.Type;
+            entry.CustomExcludes = excludes
+                .Where(e => !string.IsNullOrWhiteSpace(e) && PathExclusionValidator.IsValid(entry.Path, e, out _))
+                .Distinct(StringComparer.Ordinal)
+                .ToList();
+            ConfigManager.Save(_config);
+            RefreshIgnoreMatcherUnsafe();
+        }
+        finally
+        {
+            _configLock.Release();
+        }
+
         _engine.PurgeIgnored(_ignoreMatcher);
 
-        string entryPath = entry.Path;
         _ = Task.Run(async () =>
         {
             var crawler = new FastFileSystemCrawler(_ignoreMatcher, _config.Indexing.MaxParallelThreads);
@@ -374,6 +532,10 @@ public sealed class QuackDaemonService : IDaemonService, IDisposable
                 _engine.BulkAdd(batch);
                 return Task.CompletedTask;
             });
+            if (string.Equals(entryType, "local", StringComparison.OrdinalIgnoreCase))
+            {
+                _inotifyWatcher.AddWatchTree(entryPath);
+            }
             await SaveSnapshotSafeAsync();
             Console.WriteLine($"[Daemon] Updated excludes for '{entryPath}' and refreshed index.");
         });
@@ -397,7 +559,9 @@ public sealed class QuackDaemonService : IDaemonService, IDisposable
 
     public async Task TriggerRescanAsync(string path)
     {
-        string targetPath = string.IsNullOrWhiteSpace(path) ? string.Empty : Path.GetFullPath(path);
+        string targetPath = string.IsNullOrWhiteSpace(path)
+            ? string.Empty
+            : Path.GetFullPath(path).TrimEnd(Path.DirectorySeparatorChar);
 
         if (string.IsNullOrEmpty(targetPath))
         {
@@ -406,12 +570,43 @@ public sealed class QuackDaemonService : IDaemonService, IDisposable
         }
         else if (Directory.Exists(targetPath))
         {
-            var crawler = new FastFileSystemCrawler(_ignoreMatcher);
+            bool isAllowed;
+            await _configLock.WaitAsync();
+            try
+            {
+                isAllowed = _config.Paths.Any(p =>
+                {
+                    if (!p.Enabled) return false;
+                    string root = Path.GetFullPath(p.Path).TrimEnd(Path.DirectorySeparatorChar);
+                    return targetPath.Equals(root, StringComparison.Ordinal) ||
+                           targetPath.StartsWith(root + Path.DirectorySeparatorChar, StringComparison.Ordinal);
+                });
+            }
+            finally
+            {
+                _configLock.Release();
+            }
+
+            if (!isAllowed)
+            {
+                Console.WriteLine($"[Daemon] Rejected rescan for unconfigured path: {targetPath}");
+                return;
+            }
+
+            var stagedItems = new List<DiscoveredItem>();
+            var stageLock = new Lock();
+            var crawler = new FastFileSystemCrawler(_ignoreMatcher, _config.Indexing.MaxParallelThreads);
             await crawler.CrawlAsync(targetPath, batch =>
             {
-                _engine.BulkAdd(batch);
+                lock (stageLock)
+                {
+                    stagedItems.AddRange(batch);
+                }
                 return Task.CompletedTask;
             });
+
+            _engine.ReplaceSubtree(targetPath, stagedItems);
+            _inotifyWatcher.AddWatchTree(targetPath);
         }
 
         await SaveSnapshotSafeAsync();
@@ -419,6 +614,14 @@ public sealed class QuackDaemonService : IDaemonService, IDisposable
 
     public async Task SaveSnapshotSafeAsync()
     {
+        if (_isDisposed) return;
+
+        if (!await _snapshotLock.WaitAsync(0))
+        {
+            // A snapshot save is already in progress
+            return;
+        }
+
         try
         {
             await IndexSerializer.SaveAsync(_engine);
@@ -426,6 +629,10 @@ public sealed class QuackDaemonService : IDaemonService, IDisposable
         catch (Exception ex)
         {
             Console.WriteLine($"[Daemon] Failed to save snapshot: {ex.Message}");
+        }
+        finally
+        {
+            _snapshotLock.Release();
         }
     }
 
@@ -440,6 +647,22 @@ public sealed class QuackDaemonService : IDaemonService, IDisposable
         _inotifyWatcher.Dispose();
         _networkPoller.Dispose();
 
-        SaveSnapshotSafeAsync().GetAwaiter().GetResult();
+        _snapshotLock.Wait();
+        try
+        {
+            IndexSerializer.SaveAsync(_engine).GetAwaiter().GetResult();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[Daemon] Failed to save final snapshot: {ex.Message}");
+        }
+        finally
+        {
+            _snapshotLock.Release();
+        }
+
+        _engine.Dispose();
+        _configLock.Dispose();
+        _snapshotLock.Dispose();
     }
 }

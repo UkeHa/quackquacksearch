@@ -1,5 +1,4 @@
 using System.Collections.Concurrent;
-using System.Text;
 
 namespace QuackQuackSearch.Core.Index;
 
@@ -7,12 +6,14 @@ namespace QuackQuackSearch.Core.Index;
 /// Efficient hierarchical directory table.
 /// Replaces redundant path prefix strings with parent-child ID pointers.
 /// </summary>
-public sealed class DirectoryTable
+public sealed class DirectoryTable : IDisposable
 {
     private readonly List<DirectoryNode> _nodes = [new DirectoryNode(0, 0, string.Empty)]; // ID 0 is null/root sentinel
     private readonly Dictionary<(uint ParentId, string Name), uint> _lookup = new();
     private readonly ConcurrentDictionary<uint, string> _resolvedPathCache = new();
+    private readonly ConcurrentDictionary<string, uint> _pathToIdCache = new(StringComparer.Ordinal);
     private readonly ReaderWriterLockSlim _lock = new();
+    private bool _isDisposed;
 
     public int Count
     {
@@ -24,6 +25,74 @@ public sealed class DirectoryTable
         }
     }
 
+    private static string NormalizePath(string fullPath)
+    {
+        return fullPath.Length > 1 && fullPath.EndsWith('/')
+            ? fullPath.TrimEnd('/')
+            : fullPath;
+    }
+
+    /// <summary>
+    /// Attempts to look up an existing directory ID without mutating the table.
+    /// </summary>
+    public bool TryGetDirectoryId(string fullPath, out uint directoryId)
+    {
+        directoryId = 0;
+        if (string.IsNullOrWhiteSpace(fullPath)) return false;
+
+        string normalized = NormalizePath(fullPath);
+        if (_pathToIdCache.TryGetValue(normalized, out directoryId))
+        {
+            return true;
+        }
+
+        _lock.EnterReadLock();
+        try
+        {
+            if (normalized == "/")
+            {
+                if (_lookup.TryGetValue((0, "/"), out directoryId))
+                {
+                    _pathToIdCache[normalized] = directoryId;
+                    return true;
+                }
+                return false;
+            }
+
+            if (!_lookup.TryGetValue((0, "/"), out uint currentParentId))
+            {
+                return false;
+            }
+
+            ReadOnlySpan<char> span = normalized.AsSpan();
+            int i = 0;
+            while (i < span.Length)
+            {
+                while (i < span.Length && span[i] == '/') i++;
+                if (i >= span.Length) break;
+
+                int start = i;
+                while (i < span.Length && span[i] != '/') i++;
+                string segment = span[start..i].ToString();
+
+                if (!_lookup.TryGetValue((currentParentId, segment), out uint nextId))
+                {
+                    directoryId = 0;
+                    return false;
+                }
+                currentParentId = nextId;
+            }
+
+            directoryId = currentParentId;
+            _pathToIdCache[normalized] = directoryId;
+            return true;
+        }
+        finally
+        {
+            _lock.ExitReadLock();
+        }
+    }
+
     /// <summary>
     /// Gets or adds a directory path, decomposing it into hierarchical parent-child nodes.
     /// Handles both root "/" and nested paths "/home/user/folder".
@@ -32,20 +101,27 @@ public sealed class DirectoryTable
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(fullPath);
 
-        // Normalize trailing slashes, except for root "/"
-        string normalized = fullPath.Length > 1 && fullPath.EndsWith('/') 
-            ? fullPath.TrimEnd('/') 
-            : fullPath;
+        string normalized = NormalizePath(fullPath);
+        if (_pathToIdCache.TryGetValue(normalized, out uint cachedId))
+        {
+            return cachedId;
+        }
 
         _lock.EnterWriteLock();
         try
         {
-            if (normalized == "/")
+            if (_pathToIdCache.TryGetValue(normalized, out cachedId))
             {
-                return GetOrAddRootUnsafe();
+                return cachedId;
             }
 
-            // Split into segments
+            if (normalized == "/")
+            {
+                uint rootId = GetOrAddRootUnsafe();
+                _pathToIdCache["/"] = rootId;
+                return rootId;
+            }
+
             string[] segments = normalized.Split('/', StringSplitOptions.RemoveEmptyEntries);
             uint currentParentId = GetOrAddRootUnsafe();
 
@@ -61,6 +137,8 @@ public sealed class DirectoryTable
                 currentParentId = dirId;
             }
 
+            _pathToIdCache[normalized] = currentParentId;
+            _resolvedPathCache[currentParentId] = normalized.StartsWith('/') ? normalized : "/" + normalized;
             return currentParentId;
         }
         finally
@@ -77,6 +155,7 @@ public sealed class DirectoryTable
             _nodes.Add(new DirectoryNode(rootId, 0, "/"));
             _lookup[(0, "/")] = rootId;
             _resolvedPathCache[rootId] = "/";
+            _pathToIdCache["/"] = rootId;
         }
         return rootId;
     }
@@ -131,6 +210,7 @@ public sealed class DirectoryTable
         segments.Reverse();
         string resolved = "/" + string.Join('/', segments);
         _resolvedPathCache[directoryId] = resolved;
+        _pathToIdCache[resolved] = directoryId;
         return resolved;
     }
 
@@ -161,6 +241,7 @@ public sealed class DirectoryTable
             _nodes.Clear();
             _lookup.Clear();
             _resolvedPathCache.Clear();
+            _pathToIdCache.Clear();
 
             foreach (var node in nodes)
             {
@@ -186,6 +267,7 @@ public sealed class DirectoryTable
             _nodes.Add(new DirectoryNode(0, 0, string.Empty));
             _lookup.Clear();
             _resolvedPathCache.Clear();
+            _pathToIdCache.Clear();
         }
         finally
         {
@@ -208,8 +290,8 @@ public sealed class DirectoryTable
             {
                 uint id = (uint)i;
                 string path = ResolveFullPathUnsafe(id).TrimEnd('/');
-                if (path.Equals(normalized, StringComparison.OrdinalIgnoreCase) ||
-                    path.StartsWith(normalized + "/", StringComparison.OrdinalIgnoreCase))
+                if (path.Equals(normalized, StringComparison.Ordinal) ||
+                    path.StartsWith(normalized + "/", StringComparison.Ordinal))
                 {
                     result.Add(id);
                 }
@@ -221,5 +303,12 @@ public sealed class DirectoryTable
         }
 
         return result;
+    }
+
+    public void Dispose()
+    {
+        if (_isDisposed) return;
+        _isDisposed = true;
+        _lock.Dispose();
     }
 }

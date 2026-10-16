@@ -9,17 +9,16 @@ namespace QuackQuackSearch.Core.Monitoring;
 public sealed class LocalInotifyWatcher : IDisposable
 {
     private readonly SearchIndexEngine _engine;
-    private readonly IgnoreMatcher _ignoreMatcher;
+    private volatile IgnoreMatcher _ignoreMatcher;
     private readonly ConcurrentDictionary<int, string> _wdToPath = new();
     private readonly ConcurrentDictionary<string, int> _pathToWd = new(StringComparer.Ordinal);
-    private readonly ConcurrentDictionary<uint, (string Path, bool IsDir)> _cookiePendingMoves = new();
 
     private int _inotifyFd = -1;
     private Thread? _listenThread;
     private volatile bool _isDisposed;
     private readonly CancellationTokenSource _cts = new();
 
-    private const uint WatchMask = 
+    private const uint WatchMask =
         (uint)(InotifyNative.Mask.IN_CREATE |
                InotifyNative.Mask.IN_DELETE |
                InotifyNative.Mask.IN_DELETE_SELF |
@@ -40,9 +39,15 @@ public sealed class LocalInotifyWatcher : IDisposable
         InitInotify();
     }
 
+    public void UpdateIgnoreMatcher(IgnoreMatcher ignoreMatcher)
+    {
+        ArgumentNullException.ThrowIfNull(ignoreMatcher);
+        _ignoreMatcher = ignoreMatcher;
+    }
+
     private void InitInotify()
     {
-        _inotifyFd = InotifyNative.inotify_init1(InotifyNative.IN_CLOEXEC);
+        _inotifyFd = InotifyNative.inotify_init1(InotifyNative.IN_CLOEXEC | InotifyNative.IN_NONBLOCK);
         if (_inotifyFd < 0)
         {
             int err = Marshal.GetLastWin32Error();
@@ -57,22 +62,23 @@ public sealed class LocalInotifyWatcher : IDisposable
         _listenThread.Start();
     }
 
-    public void AddWatchTree(string rootPath)
+    public void AddWatchTree(string rootPath, bool indexDiscoveredFiles = false)
     {
         if (_isDisposed || !Directory.Exists(rootPath)) return;
 
+        var matcher = _ignoreMatcher;
         string normalizedRoot = Path.GetFullPath(rootPath);
         var dirQueue = new Queue<string>();
         dirQueue.Enqueue(normalizedRoot);
 
         int maxWatches = InotifyNative.GetMaxUserWatches();
 
-        while (dirQueue.Count > 0)
+        while (dirQueue.Count > 0 && !_isDisposed)
         {
             string currentDir = dirQueue.Dequeue();
             string dirName = Path.GetFileName(currentDir);
 
-            if (!string.IsNullOrEmpty(dirName) && _ignoreMatcher.ShouldIgnorePath(currentDir, dirName, isDirectory: true))
+            if (!string.IsNullOrEmpty(dirName) && matcher.ShouldIgnorePath(currentDir, dirName, isDirectory: true))
             {
                 continue;
             }
@@ -94,12 +100,29 @@ public sealed class LocalInotifyWatcher : IDisposable
 
             try
             {
+                if (indexDiscoveredFiles)
+                {
+                    foreach (string file in Directory.GetFiles(currentDir, "*", enumOptions))
+                    {
+                        string fileName = Path.GetFileName(file);
+                        if (!matcher.ShouldIgnorePath(file, fileName, isDirectory: false))
+                        {
+                            UpdateFileInIndex(file, fileName);
+                        }
+                    }
+                }
+
                 foreach (string subDir in Directory.GetDirectories(currentDir, "*", enumOptions))
                 {
                     string subName = Path.GetFileName(subDir);
-                    if (!_ignoreMatcher.ShouldIgnoreDirectoryName(subName) &&
-                        !_ignoreMatcher.ShouldIgnorePath(subDir, subName, isDirectory: true))
+                    if (!matcher.ShouldIgnoreDirectoryName(subName) &&
+                        !matcher.ShouldIgnorePath(subDir, subName, isDirectory: true))
                     {
+                        if (indexDiscoveredFiles)
+                        {
+                            uint nowSec = (uint)Math.Clamp(DateTimeOffset.UtcNow.ToUnixTimeSeconds(), 0L, uint.MaxValue);
+                            _engine.AddOrUpdate(subDir, isDirectory: true, size: 0, nowSec, subName.StartsWith('.'));
+                        }
                         dirQueue.Enqueue(subDir);
                     }
                 }
@@ -113,6 +136,8 @@ public sealed class LocalInotifyWatcher : IDisposable
 
     private int AddSingleWatch(string path)
     {
+        if (_isDisposed || _inotifyFd < 0) return -1;
+
         if (_pathToWd.TryGetValue(path, out int existingWd))
         {
             return existingWd;
@@ -133,7 +158,10 @@ public sealed class LocalInotifyWatcher : IDisposable
         if (_wdToPath.TryRemove(wd, out string? path))
         {
             _pathToWd.TryRemove(path, out _);
-            InotifyNative.inotify_rm_watch(_inotifyFd, wd);
+            if (!_isDisposed && _inotifyFd >= 0)
+            {
+                InotifyNative.inotify_rm_watch(_inotifyFd, wd);
+            }
         }
     }
 
@@ -148,8 +176,8 @@ public sealed class LocalInotifyWatcher : IDisposable
         foreach (var (wd, path) in _wdToPath)
         {
             string p = path.TrimEnd('/');
-            if (p.Equals(normalized, StringComparison.OrdinalIgnoreCase) ||
-                p.StartsWith(normalized + "/", StringComparison.OrdinalIgnoreCase))
+            if (p.Equals(normalized, StringComparison.Ordinal) ||
+                p.StartsWith(normalized + "/", StringComparison.Ordinal))
             {
                 wdsToRemove.Add(wd);
             }
@@ -169,23 +197,43 @@ public sealed class LocalInotifyWatcher : IDisposable
         {
             try
             {
-                IntPtr bytesRead = InotifyNative.read(_inotifyFd, buffer, (UIntPtr)buffer.Length);
-                if (bytesRead.ToInt64() <= 0)
+                int fd = _inotifyFd;
+                if (fd < 0) break;
+
+                var pfd = new InotifyNative.PollFd
                 {
-                    if (_isDisposed) break;
-                    Thread.Sleep(10);
+                    fd = fd,
+                    events = InotifyNative.POLLIN,
+                    revents = 0
+                };
+
+                int pollRes = InotifyNative.poll(ref pfd, (UIntPtr)1, 50);
+                if (pollRes <= 0 || (pfd.revents & InotifyNative.POLLIN) == 0)
+                {
+                    continue;
+                }
+
+                IntPtr bytesRead = InotifyNative.read(fd, buffer, (UIntPtr)buffer.Length);
+                long readLen = bytesRead.ToInt64();
+                if (readLen <= 0)
+                {
                     continue;
                 }
 
                 int offset = 0;
-                int totalBytes = (int)bytesRead;
+                int totalBytes = (int)readLen;
 
-                while (offset < totalBytes)
+                while (offset + 16 <= totalBytes)
                 {
                     int wd = BitConverter.ToInt32(buffer, offset);
                     uint mask = BitConverter.ToUInt32(buffer, offset + 4);
                     uint cookie = BitConverter.ToUInt32(buffer, offset + 8);
                     uint len = BitConverter.ToUInt32(buffer, offset + 12);
+
+                    if (len > (uint)(totalBytes - offset - 16))
+                    {
+                        break;
+                    }
 
                     string name = string.Empty;
                     if (len > 0)
@@ -222,6 +270,15 @@ public sealed class LocalInotifyWatcher : IDisposable
             return;
         }
 
+        if ((mask & (uint)InotifyNative.Mask.IN_IGNORED) != 0)
+        {
+            if (_wdToPath.TryRemove(wd, out string? removedPath))
+            {
+                _pathToWd.TryRemove(removedPath, out _);
+            }
+            return;
+        }
+
         if (!_wdToPath.TryGetValue(wd, out string? parentPath))
         {
             return;
@@ -230,18 +287,19 @@ public sealed class LocalInotifyWatcher : IDisposable
         bool isDir = (mask & (uint)InotifyNative.Mask.IN_ISDIR) != 0;
         string fullPath = string.IsNullOrEmpty(name) ? parentPath : Path.Combine(parentPath, name);
 
-        if (!string.IsNullOrEmpty(name) && _ignoreMatcher.ShouldIgnorePath(fullPath, name, isDir))
+        var matcher = _ignoreMatcher;
+        if (!string.IsNullOrEmpty(name) && matcher.ShouldIgnorePath(fullPath, name, isDir))
         {
             return;
         }
 
-        if ((mask & (uint)InotifyNative.Mask.IN_CREATE) != 0)
+        if ((mask & (uint)InotifyNative.Mask.IN_CREATE) != 0 || (mask & (uint)InotifyNative.Mask.IN_MOVED_TO) != 0)
         {
             if (isDir)
             {
-                AddSingleWatch(fullPath);
-                AddWatchTree(fullPath);
-                _engine.AddOrUpdate(fullPath, isDirectory: true, size: 0, (uint)DateTimeOffset.UtcNow.ToUnixTimeSeconds(), name.StartsWith('.'));
+                uint nowSec = (uint)Math.Clamp(DateTimeOffset.UtcNow.ToUnixTimeSeconds(), 0L, uint.MaxValue);
+                _engine.AddOrUpdate(fullPath, isDirectory: true, size: 0, nowSec, name.StartsWith('.'));
+                AddWatchTree(fullPath, indexDiscoveredFiles: true);
             }
             else
             {
@@ -255,39 +313,17 @@ public sealed class LocalInotifyWatcher : IDisposable
                 UpdateFileInIndex(fullPath, name);
             }
         }
-        else if ((mask & (uint)InotifyNative.Mask.IN_DELETE) != 0 || (mask & (uint)InotifyNative.Mask.IN_DELETE_SELF) != 0)
+        else if ((mask & (uint)InotifyNative.Mask.IN_DELETE) != 0 ||
+                 (mask & (uint)InotifyNative.Mask.IN_DELETE_SELF) != 0 ||
+                 (mask & (uint)InotifyNative.Mask.IN_MOVED_FROM) != 0)
         {
-            if (isDir)
+            bool isSelfDelete = (mask & (uint)InotifyNative.Mask.IN_DELETE_SELF) != 0;
+            if (isDir || isSelfDelete)
             {
-                if (_pathToWd.TryGetValue(fullPath, out int childWd))
-                {
-                    RemoveSingleWatch(childWd);
-                }
+                RemoveWatchTree(fullPath);
+                _engine.RemoveSubtree(fullPath);
             }
             _engine.Remove(fullPath);
-        }
-        else if ((mask & (uint)InotifyNative.Mask.IN_MOVED_FROM) != 0)
-        {
-            if (cookie != 0)
-            {
-                _cookiePendingMoves[cookie] = (fullPath, isDir);
-            }
-            _engine.Remove(fullPath);
-        }
-        else if ((mask & (uint)InotifyNative.Mask.IN_MOVED_TO) != 0)
-        {
-            _cookiePendingMoves.TryRemove(cookie, out _);
-
-            if (isDir)
-            {
-                AddSingleWatch(fullPath);
-                AddWatchTree(fullPath);
-                _engine.AddOrUpdate(fullPath, isDirectory: true, size: 0, (uint)DateTimeOffset.UtcNow.ToUnixTimeSeconds(), name.StartsWith('.'));
-            }
-            else
-            {
-                UpdateFileInIndex(fullPath, name);
-            }
         }
     }
 
@@ -298,12 +334,16 @@ public sealed class LocalInotifyWatcher : IDisposable
             if (File.Exists(fullPath))
             {
                 var fi = new FileInfo(fullPath);
+                long rawUnixSec = new DateTimeOffset(fi.LastWriteTimeUtc).ToUnixTimeSeconds();
+                uint unixSec = (uint)Math.Clamp(rawUnixSec, 0L, uint.MaxValue);
+                bool isSymlink = (fi.Attributes & FileAttributes.ReparsePoint) != 0;
                 _engine.AddOrUpdate(
                     fullPath,
                     isDirectory: false,
                     size: fi.Length,
-                    modifiedUnixSec: (uint)new DateTimeOffset(fi.LastWriteTimeUtc).ToUnixTimeSeconds(),
-                    isHidden: name.StartsWith('.') || (fi.Attributes & FileAttributes.Hidden) != 0
+                    modifiedUnixSec: unixSec,
+                    isHidden: name.StartsWith('.') || (fi.Attributes & FileAttributes.Hidden) != 0,
+                    isSymlink: isSymlink
                 );
             }
         }
@@ -319,12 +359,25 @@ public sealed class LocalInotifyWatcher : IDisposable
         _isDisposed = true;
 
         _cts.Cancel();
+
+        try
+        {
+            if (_listenThread != null && _listenThread.IsAlive && Thread.CurrentThread != _listenThread)
+            {
+                _listenThread.Join(500);
+            }
+        }
+        catch
+        {
+            // Ignore thread join exceptions on shutdown
+        }
+
         _cts.Dispose();
 
-        if (_inotifyFd >= 0)
+        int fd = Interlocked.Exchange(ref _inotifyFd, -1);
+        if (fd >= 0)
         {
-            InotifyNative.close(_inotifyFd);
-            _inotifyFd = -1;
+            InotifyNative.close(fd);
         }
 
         _wdToPath.Clear();

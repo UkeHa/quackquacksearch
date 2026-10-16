@@ -23,7 +23,7 @@ public sealed class NetworkShareStatus(string path)
 public sealed class NetworkPollingScheduler : IDisposable
 {
     private readonly SearchIndexEngine _engine;
-    private readonly IgnoreMatcher _ignoreMatcher;
+    private volatile IgnoreMatcher _ignoreMatcher;
     private readonly List<PathConfigEntry> _networkPaths = [];
     private readonly Dictionary<string, NetworkShareStatus> _statuses = new(StringComparer.Ordinal);
     private readonly Lock _lock = new();
@@ -40,18 +40,32 @@ public sealed class NetworkPollingScheduler : IDisposable
         _ignoreMatcher = ignoreMatcher ?? IgnoreMatcher.Default;
     }
 
+    public void UpdateIgnoreMatcher(IgnoreMatcher ignoreMatcher)
+    {
+        ArgumentNullException.ThrowIfNull(ignoreMatcher);
+        _ignoreMatcher = ignoreMatcher;
+    }
+
     public void SetPaths(IEnumerable<PathConfigEntry> paths)
     {
         lock (_lock)
         {
             _networkPaths.Clear();
+            var activeSet = new HashSet<string>(StringComparer.Ordinal);
             foreach (var p in paths.Where(p => p.Type.Equals("network", StringComparison.OrdinalIgnoreCase) && p.Enabled))
             {
                 _networkPaths.Add(p);
+                activeSet.Add(p.Path);
                 if (!_statuses.ContainsKey(p.Path))
                 {
                     _statuses[p.Path] = new NetworkShareStatus(p.Path);
                 }
+            }
+
+            var toRemove = _statuses.Keys.Where(k => !activeSet.Contains(k)).ToList();
+            foreach (var k in toRemove)
+            {
+                _statuses.Remove(k);
             }
         }
     }
@@ -71,10 +85,13 @@ public sealed class NetworkPollingScheduler : IDisposable
 
     public void Start()
     {
-        if (_pollLoopTask != null) return;
+        lock (_lock)
+        {
+            if (_isDisposed || _pollLoopTask != null) return;
 
-        _cts = new CancellationTokenSource();
-        _pollLoopTask = Task.Run(() => RunPollLoopAsync(_cts.Token));
+            _cts = new CancellationTokenSource();
+            _pollLoopTask = Task.Run(() => RunPollLoopAsync(_cts.Token));
+        }
     }
 
     private async Task RunPollLoopAsync(CancellationToken cancellationToken)
@@ -106,6 +123,7 @@ public sealed class NetworkPollingScheduler : IDisposable
 
     private async Task ProcessPathWithTimeoutAsync(PathConfigEntry entry, CancellationToken cancellationToken)
     {
+        int intervalSec = entry.PollIntervalSeconds > 0 ? entry.PollIntervalSeconds : 60;
         NetworkShareStatus status;
         lock (_lock)
         {
@@ -114,14 +132,12 @@ public sealed class NetworkPollingScheduler : IDisposable
                 status = new NetworkShareStatus(entry.Path);
                 _statuses[entry.Path] = status;
             }
-        }
 
-        // Check if poll interval is due
-        int intervalSec = entry.PollIntervalSeconds > 0 ? entry.PollIntervalSeconds : 60;
-        if (status.State == NetworkShareState.Idle &&
-            (DateTimeOffset.UtcNow - status.LastSuccessfulPoll).TotalSeconds < intervalSec)
-        {
-            return;
+            if (status.State == NetworkShareState.Idle &&
+                (DateTimeOffset.UtcNow - status.LastSuccessfulPoll).TotalSeconds < intervalSec)
+            {
+                return;
+            }
         }
 
         int timeoutSec = entry.TimeoutSeconds > 0 ? entry.TimeoutSeconds : 4;
@@ -132,7 +148,6 @@ public sealed class NetworkPollingScheduler : IDisposable
         {
             UpdateStatus(status, NetworkShareState.Scanning, null);
 
-            // Execute reachability check and crawl in a thread with timeout
             await Task.Run(async () =>
             {
                 if (!Directory.Exists(entry.Path))
@@ -140,15 +155,26 @@ public sealed class NetworkPollingScheduler : IDisposable
                     throw new DirectoryNotFoundException($"Network path inaccessible: {entry.Path}");
                 }
 
+                var stagedItems = new List<DiscoveredItem>();
+                var stageLock = new Lock();
                 var crawler = new FastFileSystemCrawler(_ignoreMatcher, maxDegreeOfParallelism: 2);
                 await crawler.CrawlAsync(entry.Path, batch =>
                 {
-                    _engine.BulkAdd(batch);
+                    lock (stageLock)
+                    {
+                        stagedItems.AddRange(batch);
+                    }
                     return Task.CompletedTask;
                 }, cancellationToken: timeoutCts.Token).ConfigureAwait(false);
+
+                timeoutCts.Token.ThrowIfCancellationRequested();
+                _engine.ReplaceSubtree(entry.Path, stagedItems);
             }, timeoutCts.Token).ConfigureAwait(false);
 
-            status.LastSuccessfulPoll = DateTimeOffset.UtcNow;
+            lock (_lock)
+            {
+                status.LastSuccessfulPoll = DateTimeOffset.UtcNow;
+            }
             UpdateStatus(status, NetworkShareState.Idle, null);
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
@@ -163,17 +189,27 @@ public sealed class NetworkPollingScheduler : IDisposable
 
     private void UpdateStatus(NetworkShareStatus status, NetworkShareState newState, string? error)
     {
-        status.State = newState;
-        status.LastError = error;
+        lock (_lock)
+        {
+            status.State = newState;
+            status.LastError = error;
+        }
         OnStatusChanged?.Invoke(status.Path, newState, error);
     }
 
     public void Dispose()
     {
-        if (_isDisposed) return;
-        _isDisposed = true;
+        CancellationTokenSource? cts;
+        lock (_lock)
+        {
+            if (_isDisposed) return;
+            _isDisposed = true;
+            cts = _cts;
+            _cts = null;
+        }
 
-        _cts?.Cancel();
-        _cts?.Dispose();
+        try { cts?.Cancel(); } catch { }
+        try { _pollLoopTask?.Wait(TimeSpan.FromMilliseconds(500)); } catch { }
+        cts?.Dispose();
     }
 }

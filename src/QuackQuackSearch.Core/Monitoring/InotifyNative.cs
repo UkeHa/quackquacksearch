@@ -36,6 +36,16 @@ public static class InotifyNative
         IN_ONESHOT       = 0x80000000
     }
 
+    public const short POLLIN = 0x0001;
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct PollFd
+    {
+        public int fd;
+        public short events;
+        public short revents;
+    }
+
     [DllImport(LibC, SetLastError = true)]
     public static extern int inotify_init1(int flags);
 
@@ -47,6 +57,9 @@ public static class InotifyNative
 
     [DllImport(LibC, SetLastError = true)]
     public static extern IntPtr read(int fd, byte[] buf, UIntPtr count);
+
+    [DllImport(LibC, SetLastError = true)]
+    public static extern int poll(ref PollFd fds, UIntPtr nfds, int timeout);
 
     [DllImport(LibC, SetLastError = true)]
     public static extern int close(int fd);

@@ -97,52 +97,74 @@ public sealed class KRunnerDbusObject(SearchIndexEngine engine, QuackConfig conf
                 string? parentDir = Path.GetDirectoryName(id);
                 if (!string.IsNullOrEmpty(parentDir) && Directory.Exists(parentDir))
                 {
-                    // Prefer dolphin --select if dolphin is installed
-                    Process.Start(new ProcessStartInfo
+                    try
                     {
-                        FileName = "dolphin",
-                        Arguments = $"--select \"{id}\"",
-                        UseShellExecute = false,
-                        CreateNoWindow = true
-                    });
+                        var psi = new ProcessStartInfo
+                        {
+                            FileName = "dolphin",
+                            UseShellExecute = false,
+                            CreateNoWindow = true
+                        };
+                        psi.ArgumentList.Add("--select");
+                        psi.ArgumentList.Add(id);
+                        Process.Start(psi);
+                    }
+                    catch
+                    {
+                        var fallbackPsi = new ProcessStartInfo
+                        {
+                            FileName = "xdg-open",
+                            UseShellExecute = false,
+                            CreateNoWindow = true
+                        };
+                        fallbackPsi.ArgumentList.Add(parentDir);
+                        Process.Start(fallbackPsi);
+                    }
                 }
             }
             else if (action_id == "copy_path")
             {
-                // Try wl-copy (Wayland) or xclip (X11)
                 try
                 {
                     var psi = new ProcessStartInfo
                     {
                         FileName = "wl-copy",
-                        Arguments = $"\"{id}\"",
                         UseShellExecute = false,
                         CreateNoWindow = true
                     };
+                    psi.ArgumentList.Add(id);
                     Process.Start(psi);
                 }
                 catch
                 {
-                    // Fallback to xclip
-                    Process.Start(new ProcessStartInfo
+                    var xclipPsi = new ProcessStartInfo
                     {
                         FileName = "xclip",
-                        Arguments = $"-selection clipboard -i",
                         UseShellExecute = false,
-                        CreateNoWindow = true
-                    });
+                        CreateNoWindow = true,
+                        RedirectStandardInput = true
+                    };
+                    xclipPsi.ArgumentList.Add("-selection");
+                    xclipPsi.ArgumentList.Add("clipboard");
+                    xclipPsi.ArgumentList.Add("-i");
+                    var proc = Process.Start(xclipPsi);
+                    if (proc != null)
+                    {
+                        proc.StandardInput.Write(id);
+                        proc.StandardInput.Close();
+                    }
                 }
             }
             else
             {
-                // Default action: open file with default handler
-                Process.Start(new ProcessStartInfo
+                var psi = new ProcessStartInfo
                 {
                     FileName = "xdg-open",
-                    Arguments = $"\"{id}\"",
                     UseShellExecute = false,
                     CreateNoWindow = true
-                });
+                };
+                psi.ArgumentList.Add(id);
+                Process.Start(psi);
             }
         }
         catch (Exception ex)

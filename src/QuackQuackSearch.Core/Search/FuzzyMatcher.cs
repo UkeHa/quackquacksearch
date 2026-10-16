@@ -123,10 +123,12 @@ public static class FuzzyMatcher
         return false;
     }
 
+    private const int MaxStackAllocLength = 256;
+
     private static bool HasConflictingDigits(ReadOnlySpan<char> s1, ReadOnlySpan<char> s2)
     {
-        Span<char> d1 = stackalloc char[s1.Length];
-        Span<char> d2 = stackalloc char[s2.Length];
+        Span<char> d1 = s1.Length <= MaxStackAllocLength ? stackalloc char[s1.Length] : new char[s1.Length];
+        Span<char> d2 = s2.Length <= MaxStackAllocLength ? stackalloc char[s2.Length] : new char[s2.Length];
         int count1 = 0, count2 = 0;
 
         for (int i = 0; i < s1.Length; i++)
@@ -229,6 +231,7 @@ public static class FuzzyMatcher
         if (len1 == 0) return len2;
         if (len2 == 0) return len1;
         if (Math.Abs(len1 - len2) > maxAllowed) return maxAllowed + 1;
+        if (len2 > MaxStackAllocLength) return maxAllowed + 1;
 
         Span<int> prevPrevRow = stackalloc int[len2 + 1];
         Span<int> prevRow = stackalloc int[len2 + 1];
@@ -256,7 +259,7 @@ public static class FuzzyMatcher
                     c1 == char.ToLowerInvariant(s2[j - 2]) &&
                     char.ToLowerInvariant(s1[i - 2]) == c2)
                 {
-                    val = Math.Min(val, prevPrevRow[j - 2] + cost);
+                    val = Math.Min(val, prevPrevRow[j - 2] + 1);
                 }
 
                 currRow[j] = val;

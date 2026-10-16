@@ -798,6 +798,32 @@ WantedBy=default.target
             return 0;
         }
 
+        if (sub == "start")
+        {
+            var p = Process.Start(new ProcessStartInfo("systemctl", "--user start quackquacksearch") { UseShellExecute = false });
+            p?.WaitForExit();
+            if (p?.ExitCode == 0)
+            {
+                AnsiConsole.MarkupLine("[green]Started quackquacksearch systemd user service.[/]");
+                return 0;
+            }
+            AnsiConsole.MarkupLine("[red]Failed to start quackquacksearch service.[/]");
+            return 1;
+        }
+
+        if (sub == "stop")
+        {
+            var p = Process.Start(new ProcessStartInfo("systemctl", "--user stop quackquacksearch") { UseShellExecute = false });
+            p?.WaitForExit();
+            if (p?.ExitCode == 0)
+            {
+                AnsiConsole.MarkupLine("[green]Stopped quackquacksearch systemd user service.[/]");
+                return 0;
+            }
+            AnsiConsole.MarkupLine("[red]Failed to stop quackquacksearch service.[/]");
+            return 1;
+        }
+
         if (File.Exists(serviceFile))
         {
             AnsiConsole.MarkupLine($"[green]Service unit is installed at:[/] {serviceFile}");
@@ -852,18 +878,48 @@ WantedBy=default.target
             AnsiConsole.MarkupLine($"[cyan]Registering global shortcut ({shortcut}) for QuackQuackSearch GUI...[/]");
             bool registered = false;
 
-            if (File.Exists("/usr/bin/kwriteconfig6"))
+            string? kwriteTool = File.Exists("/usr/bin/kwriteconfig6")
+                ? "/usr/bin/kwriteconfig6"
+                : (File.Exists("/usr/bin/kwriteconfig5") ? "/usr/bin/kwriteconfig5" : null);
+
+            if (kwriteTool != null)
             {
-                Process.Start("kwriteconfig6", "--file kglobalshortcutsrc --group quackquacksearch-gui.desktop --key _k_friendly_name QuackQuackSearch")?.WaitForExit();
-                Process.Start("kwriteconfig6", $"--file kglobalshortcutsrc --group quackquacksearch-gui.desktop --key _launch \"{shortcut},none,Launch QuackQuackSearch\"")?.WaitForExit();
-                Process.Start("kquitapp6", "kglobalaccel 2>/dev/null || true")?.WaitForExit();
-                registered = true;
-                AnsiConsole.MarkupLine($"[green]Successfully registered KDE Plasma global shortcut:[/] [bold cyan]{shortcut}[/]");
-            }
-            else if (File.Exists("/usr/bin/kwriteconfig5"))
-            {
-                Process.Start("kwriteconfig5", "--file kglobalshortcutsrc --group quackquacksearch-gui.desktop --key _k_friendly_name QuackQuackSearch")?.WaitForExit();
-                Process.Start("kwriteconfig5", $"--file kglobalshortcutsrc --group quackquacksearch-gui.desktop --key _launch \"{shortcut},none,Launch QuackQuackSearch\"")?.WaitForExit();
+                var psi1 = new ProcessStartInfo(kwriteTool) { UseShellExecute = false };
+                psi1.ArgumentList.Add("--file");
+                psi1.ArgumentList.Add("kglobalshortcutsrc");
+                psi1.ArgumentList.Add("--group");
+                psi1.ArgumentList.Add("quackquacksearch-gui.desktop");
+                psi1.ArgumentList.Add("--key");
+                psi1.ArgumentList.Add("_k_friendly_name");
+                psi1.ArgumentList.Add("QuackQuackSearch");
+                Process.Start(psi1)?.WaitForExit();
+
+                var psi2 = new ProcessStartInfo(kwriteTool) { UseShellExecute = false };
+                psi2.ArgumentList.Add("--file");
+                psi2.ArgumentList.Add("kglobalshortcutsrc");
+                psi2.ArgumentList.Add("--group");
+                psi2.ArgumentList.Add("quackquacksearch-gui.desktop");
+                psi2.ArgumentList.Add("--key");
+                psi2.ArgumentList.Add("_launch");
+                psi2.ArgumentList.Add($"{shortcut},none,Launch QuackQuackSearch");
+                Process.Start(psi2)?.WaitForExit();
+
+                if (File.Exists("/usr/bin/kquitapp6"))
+                {
+                    try
+                    {
+                        var quitPsi = new ProcessStartInfo("/usr/bin/kquitapp6")
+                        {
+                            UseShellExecute = false,
+                            RedirectStandardError = true,
+                            RedirectStandardOutput = true
+                        };
+                        quitPsi.ArgumentList.Add("kglobalaccel");
+                        Process.Start(quitPsi)?.WaitForExit();
+                    }
+                    catch { }
+                }
+
                 registered = true;
                 AnsiConsole.MarkupLine($"[green]Successfully registered KDE Plasma global shortcut:[/] [bold cyan]{shortcut}[/]");
             }

@@ -40,7 +40,7 @@ public static class PathExclusionValidator
             string fullExclude = Path.GetFullPath(expanded).TrimEnd(Path.DirectorySeparatorChar);
 
             // Cannot exclude root path itself (that would disable monitoring the entire path)
-            if (string.Equals(fullExclude, fullRoot, StringComparison.OrdinalIgnoreCase))
+            if (string.Equals(fullExclude, fullRoot, StringComparison.Ordinal))
             {
                 errorMessage = $"Der Ausschluss darf nicht der überwachte Stammordner selbst sein ({fullRoot}).";
                 return false;
@@ -48,7 +48,7 @@ public static class PathExclusionValidator
 
             // Must be strictly inside fullRoot
             string prefix = fullRoot + Path.DirectorySeparatorChar;
-            if (!fullExclude.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+            if (!fullExclude.StartsWith(prefix, StringComparison.Ordinal))
             {
                 errorMessage = $"Der Ausschluss '{trimmedPattern}' liegt nicht innerhalb des überwachten Pfades '{fullRoot}'.";
                 return false;

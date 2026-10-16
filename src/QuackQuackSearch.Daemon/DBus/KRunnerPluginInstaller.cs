@@ -7,13 +7,14 @@ public static class KRunnerPluginInstaller
         return Path.Combine(QuackQuackSearch.Core.System.XdgDirectories.KRunnerPluginsDir, "quackquacksearch.desktop");
     }
 
-    public static void InstallDesktopFile()
+    public static void InstallDesktopFile(int minCharCount = 2)
     {
         string filePath = GetPluginDesktopPath();
         string dir = Path.GetDirectoryName(filePath)!;
         Directory.CreateDirectory(dir);
 
-        const string content = """
+        int minLetters = Math.Max(1, minCharCount);
+        string content = $"""
 [Desktop Entry]
 Name=QuackQuackSearch
 Comment=Lightning fast file search via QuackQuackSearch
@@ -24,11 +25,11 @@ X-KDE-PluginInfo-Name=quackquacksearch
 X-KDE-PluginInfo-Version=1.0
 X-KDE-PluginInfo-License=GPL-3.0
 X-KDE-PluginInfo-EnabledByDefault=true
-X-Plasma-API=DBus
+X-Plasma-API=DBus2
 X-Plasma-DBusRunner-Service=org.quackquacksearch.Daemon
 X-Plasma-DBusRunner-Path=/quackquacksearch
 X-Plasma-Request-Actions-Once=true
-X-Plasma-Runner-Min-Letter-Count=2
+X-Plasma-Runner-Min-Letter-Count={minLetters}
 X-Plasma-Runner-Unique-Results=true
 X-Plasma-Runner-Weak-Results=true
 """;

@@ -173,26 +173,25 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged, IDisposable
 
         if (string.IsNullOrEmpty(query))
         {
-            // Empty search: if fallback engine has data, show recent entries
-            if (_fallbackEngine.TotalFiles > 0)
-            {
-                var sample = _fallbackEngine.Search("a", new SearchOptions { MaxResults = 100 });
-                foreach (var r in sample)
-                {
-                    _allCurrentResults.Add(ToModel(r));
-                }
-            }
-            else if (_daemonService != null)
+            if (_daemonService != null)
             {
                 try
                 {
-                    var dtos = await _daemonService.SearchAsync("a", 100);
+                    var dtos = await _daemonService.SearchAsync(string.Empty, 100);
                     foreach (var d in dtos)
                     {
                         _allCurrentResults.Add(ToModel(d));
                     }
                 }
                 catch { }
+            }
+            else if (_fallbackEngine.TotalFiles > 0)
+            {
+                var recent = _fallbackEngine.GetRecentEntries(100);
+                foreach (var r in recent)
+                {
+                    _allCurrentResults.Add(ToModel(r));
+                }
             }
         }
         else
@@ -272,13 +271,14 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged, IDisposable
 
         try
         {
-            Process.Start(new ProcessStartInfo
+            var psi = new ProcessStartInfo
             {
                 FileName = "xdg-open",
-                Arguments = $"\"{item.FullPath}\"",
                 UseShellExecute = false,
                 CreateNoWindow = true
-            });
+            };
+            psi.ArgumentList.Add(item.FullPath);
+            Process.Start(psi);
         }
         catch (Exception ex)
         {
@@ -293,18 +293,27 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged, IDisposable
 
         try
         {
-            Process.Start(new ProcessStartInfo
+            var psi = new ProcessStartInfo
             {
                 FileName = "dolphin",
-                Arguments = $"--select \"{item.FullPath}\"",
                 UseShellExecute = false,
                 CreateNoWindow = true
-            });
+            };
+            psi.ArgumentList.Add("--select");
+            psi.ArgumentList.Add(item.FullPath);
+            Process.Start(psi);
         }
         catch
         {
             string dir = Path.GetDirectoryName(item.FullPath) ?? "/";
-            Process.Start(new ProcessStartInfo("xdg-open", $"\"{dir}\"") { UseShellExecute = false });
+            var fallbackPsi = new ProcessStartInfo
+            {
+                FileName = "xdg-open",
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+            fallbackPsi.ArgumentList.Add(dir);
+            Process.Start(fallbackPsi);
         }
     }
 
@@ -330,26 +339,37 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged, IDisposable
     {
         try
         {
-            var p = Process.Start(new ProcessStartInfo
+            var psi = new ProcessStartInfo
             {
                 FileName = "wl-copy",
-                Arguments = $"\"{text}\"",
                 UseShellExecute = false,
                 CreateNoWindow = true
-            });
+            };
+            psi.ArgumentList.Add(text);
+            var p = Process.Start(psi);
             p?.WaitForExit(500);
         }
         catch
         {
             try
             {
-                Process.Start(new ProcessStartInfo
+                var xclipPsi = new ProcessStartInfo
                 {
                     FileName = "xclip",
-                    Arguments = $"-selection clipboard -i",
                     UseShellExecute = false,
-                    CreateNoWindow = true
-                });
+                    CreateNoWindow = true,
+                    RedirectStandardInput = true
+                };
+                xclipPsi.ArgumentList.Add("-selection");
+                xclipPsi.ArgumentList.Add("clipboard");
+                xclipPsi.ArgumentList.Add("-i");
+                var p = Process.Start(xclipPsi);
+                if (p != null)
+                {
+                    p.StandardInput.Write(text);
+                    p.StandardInput.Close();
+                    p.WaitForExit(500);
+                }
             }
             catch { }
         }
@@ -383,5 +403,6 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged, IDisposable
     public void Dispose()
     {
         _debounceTimer.Stop();
+        _fallbackEngine.Dispose();
     }
 }

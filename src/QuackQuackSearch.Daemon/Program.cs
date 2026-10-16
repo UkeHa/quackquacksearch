@@ -38,7 +38,7 @@ public static class Program
             await daemonService.InitializeAsync(cts.Token);
 
             Console.WriteLine("[Daemon] Connecting to D-Bus Session Bus...");
-            var connection = new Connection(Address.Session);
+            using var connection = new Connection(Address.Session);
             await connection.ConnectAsync();
 
             // Register QuackQuackSearch Daemon API
@@ -55,7 +55,7 @@ public static class Program
             Console.WriteLine("[Daemon] Acquired service name: org.quackquacksearch.Daemon");
 
             // Install KRunner .desktop plugin registration file
-            KRunnerPluginInstaller.InstallDesktopFile();
+            KRunnerPluginInstaller.InstallDesktopFile(daemonService.Config.KRunner.MinCharCount);
 
             Console.WriteLine($"[Daemon] Ready! Monitoring {daemonService.Engine.TotalFiles:N0} files across {daemonService.Engine.TotalDirectories:N0} directories.");
             Console.WriteLine("[Daemon] Press Ctrl+C or send SIGTERM to terminate.");

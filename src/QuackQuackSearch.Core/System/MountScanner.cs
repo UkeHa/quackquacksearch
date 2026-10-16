@@ -1,9 +1,13 @@
+using System.Runtime.InteropServices;
 using System.Text;
 
 namespace QuackQuackSearch.Core.System;
 
 public static class MountScanner
 {
+    [DllImport("libc")]
+    private static extern uint geteuid();
+
     private static readonly HashSet<string> IgnoredFsTypes = new(StringComparer.OrdinalIgnoreCase)
     {
         "sysfs", "proc", "devtmpfs", "devpts", "securityfs", "cgroup", "cgroup2",
@@ -36,14 +40,16 @@ public static class MountScanner
             {
                 if (string.IsNullOrWhiteSpace(line)) continue;
 
-                var parts = line.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+                // Do not use RemoveEmptyEntries: in namespaces/sandboxes, fs_spec (parts[0]) can be empty (" / tmpfs ..."),
+                // and stripping empty entries shifts mountPoint into parts[0] and fsType into parts[1].
+                var parts = line.Split(' ');
                 if (parts.Length < 3) continue;
 
                 string device = UnescapeOctal(parts[0]);
                 string mountPoint = UnescapeOctal(parts[1]);
                 string fsType = parts[2];
 
-                if (IgnoredFsTypes.Contains(fsType)) continue;
+                if (string.IsNullOrEmpty(mountPoint) || IgnoredFsTypes.Contains(fsType)) continue;
 
                 // Ignore system mount points that shouldn't normally be indexed by user search
                 if (mountPoint.StartsWith("/sys") || mountPoint.StartsWith("/proc") ||
@@ -104,10 +110,10 @@ public static class MountScanner
 
     private static void ScanGvfsUserMounts(List<MountCandidate> candidates)
     {
-        int uid = Environment.UserName == "root" ? 0 : 1000;
+        uint uid = RuntimeInformation.IsOSPlatform(OSPlatform.Linux) ? geteuid() : 1000u;
         string? xdgRuntime = Environment.GetEnvironmentVariable("XDG_RUNTIME_DIR");
-        string gvfsBase = !string.IsNullOrEmpty(xdgRuntime) 
-            ? Path.Combine(xdgRuntime, "gvfs") 
+        string gvfsBase = !string.IsNullOrEmpty(xdgRuntime)
+            ? Path.Combine(xdgRuntime, "gvfs")
             : $"/run/user/{uid}/gvfs";
 
         if (Directory.Exists(gvfsBase))

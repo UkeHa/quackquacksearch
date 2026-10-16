@@ -45,8 +45,10 @@ public static class ConfigManager
         Directory.CreateDirectory(dir);
 
         string filePath = GetConfigFilePath();
+        string tempPath = filePath + ".tmp";
         string json = JsonSerializer.Serialize(config, JsonOptions);
-        File.WriteAllText(filePath, json);
+        File.WriteAllText(tempPath, json);
+        File.Move(tempPath, filePath, overwrite: true);
     }
 
     public static QuackConfig CreateDefault()

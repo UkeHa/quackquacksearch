@@ -76,7 +76,7 @@ public sealed class IgnoreMatcher
             if (Path.IsPathRooted(trimmed))
             {
                 string normPrefix = trimmed.TrimEnd('/', '\\');
-                if (!_excludedPathPrefixes.Contains(normPrefix, StringComparer.OrdinalIgnoreCase))
+                if (!_excludedPathPrefixes.Contains(normPrefix, StringComparer.Ordinal))
                 {
                     _excludedPathPrefixes.Add(normPrefix);
                 }
@@ -98,7 +98,7 @@ public sealed class IgnoreMatcher
             if (!string.IsNullOrWhiteSpace(rootPath) && !trimmed.Contains('*') && !trimmed.Contains('?'))
             {
                 string resolved = Path.GetFullPath(Path.Combine(rootPath, trimmed.TrimEnd('/', '\\')));
-                if (!_excludedPathPrefixes.Contains(resolved, StringComparer.OrdinalIgnoreCase))
+                if (!_excludedPathPrefixes.Contains(resolved, StringComparer.Ordinal))
                 {
                     _excludedPathPrefixes.Add(resolved);
                 }
@@ -148,9 +148,8 @@ public sealed class IgnoreMatcher
         // 1. Check explicit excluded path prefixes (e.g. "/home/secret" excluding "/home/secret" and "/home/secret/...")
         foreach (var prefix in _excludedPathPrefixes)
         {
-            if (normPath.Equals(prefix, StringComparison.OrdinalIgnoreCase) ||
-                normPath.StartsWith(prefix + "/", StringComparison.OrdinalIgnoreCase) ||
-                normPath.StartsWith(prefix + "\\", StringComparison.OrdinalIgnoreCase))
+            if (normPath.StartsWith(prefix, StringComparison.Ordinal) &&
+                (normPath.Length == prefix.Length || normPath[prefix.Length] is '/' or '\\'))
             {
                 return true;
             }
@@ -162,15 +161,27 @@ public sealed class IgnoreMatcher
             return true;
         }
 
-        // 3. Check if any path segment matches an exact ignored directory
-        foreach (var dirName in _exactDirNames)
+        // 3. Check if any path segment matches an exact ignored directory (zero allocation via AlternateLookup)
+        if (_exactDirNames.Count > 0)
         {
-            if (normPath.Contains($"/{dirName}/", StringComparison.OrdinalIgnoreCase) ||
-                normPath.EndsWith($"/{dirName}", StringComparison.OrdinalIgnoreCase) ||
-                normPath.Contains($"\\{dirName}\\", StringComparison.OrdinalIgnoreCase) ||
-                normPath.EndsWith($"\\{dirName}", StringComparison.OrdinalIgnoreCase))
+            var altLookup = _exactDirNames.GetAlternateLookup<ReadOnlySpan<char>>();
+            ReadOnlySpan<char> pathSpan = normPath.AsSpan();
+            int idx = 0;
+            while (idx < pathSpan.Length)
             {
-                return true;
+                while (idx < pathSpan.Length && pathSpan[idx] is '/' or '\\') idx++;
+                if (idx >= pathSpan.Length) break;
+
+                int start = idx;
+                while (idx < pathSpan.Length && pathSpan[idx] is not ('/' or '\\')) idx++;
+                ReadOnlySpan<char> segment = pathSpan[start..idx];
+
+                // Only directory segments (or the final segment if isDirectory is true) should match _exactDirNames
+                bool isDirSegment = idx < pathSpan.Length || isDirectory;
+                if (isDirSegment && altLookup.Contains(segment))
+                {
+                    return true;
+                }
             }
         }
 

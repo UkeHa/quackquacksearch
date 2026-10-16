@@ -9,7 +9,8 @@ public readonly record struct DiscoveredItem(
     long Size,
     uint ModifiedUnixSeconds,
     bool IsDirectory,
-    bool IsHidden
+    bool IsHidden,
+    bool IsSymlink = false
 );
 
 public sealed record CrawlProgress(
@@ -26,14 +27,13 @@ public sealed class FastFileSystemCrawler
     public FastFileSystemCrawler(IgnoreMatcher? ignoreMatcher = null, int maxDegreeOfParallelism = 0)
     {
         _ignoreMatcher = ignoreMatcher ?? IgnoreMatcher.Default;
-        _maxDegreeOfParallelism = maxDegreeOfParallelism > 0 
-            ? maxDegreeOfParallelism 
+        _maxDegreeOfParallelism = maxDegreeOfParallelism > 0
+            ? maxDegreeOfParallelism
             : Math.Clamp(Environment.ProcessorCount, 2, 8);
     }
 
     /// <summary>
     /// Crawls a root directory in parallel, yielding items as they are discovered.
-    /// Uses zero-allocation FileSystemEntry spans to prevent GC thrashing.
     /// </summary>
     public async Task CrawlAsync(
         string rootPath,
@@ -50,29 +50,10 @@ public sealed class FastFileSystemCrawler
 
         long filesCount = 0;
         long dirsCount = 0;
-        int activeWorkers = 0;
-
-        var batchQueue = new ConcurrentQueue<DiscoveredItem>();
+        long pendingDirs = 1;
         const int batchSize = 1000;
 
-        async Task FlushBatchAsync(bool force)
-        {
-            if (batchQueue.IsEmpty) return;
-            if (force || batchQueue.Count >= batchSize)
-            {
-                var batch = new List<DiscoveredItem>(batchSize);
-                while (batch.Count < batchSize && batchQueue.TryDequeue(out var item))
-                {
-                    batch.Add(item);
-                }
-                if (batch.Count > 0)
-                {
-                    await onBatchDiscovered(batch).ConfigureAwait(false);
-                }
-            }
-        }
-
-        var tasks = Enumerable.Range(0, _maxDegreeOfParallelism).Select(workerId => Task.Run(async () =>
+        var tasks = Enumerable.Range(0, _maxDegreeOfParallelism).Select(_ => Task.Run(async () =>
         {
             var options = new EnumerationOptions
             {
@@ -82,46 +63,33 @@ public sealed class FastFileSystemCrawler
                 ReturnSpecialDirectories = false
             };
 
-            int idleRetries = 0;
+            var localBatch = new List<DiscoveredItem>(batchSize);
 
             while (!cancellationToken.IsCancellationRequested)
             {
                 if (!dirQueue.TryDequeue(out string? currentDir))
                 {
-                    if (Volatile.Read(ref activeWorkers) == 0 && dirQueue.IsEmpty)
+                    if (Volatile.Read(ref pendingDirs) <= 0 && dirQueue.IsEmpty)
                     {
-                        idleRetries++;
-                        if (idleRetries > 3)
-                        {
-                            // Truly done
-                            break;
-                        }
-                    }
-                    else
-                    {
-                        idleRetries = 0;
+                        break;
                     }
 
-                    await Task.Delay(2, cancellationToken).ConfigureAwait(false);
+                    await Task.Delay(1, cancellationToken).ConfigureAwait(false);
                     continue;
                 }
 
-                idleRetries = 0;
-                Interlocked.Increment(ref activeWorkers);
-
                 try
                 {
-                    Interlocked.Increment(ref dirsCount);
-                    if (dirsCount % 200 == 0 && progress != null)
+                    long currentDirsCount = Interlocked.Increment(ref dirsCount);
+                    if (currentDirsCount % 200 == 0 && progress != null)
                     {
                         progress.Report(new CrawlProgress(
                             Interlocked.Read(ref filesCount),
-                            dirsCount,
+                            currentDirsCount,
                             currentDir
                         ));
                     }
 
-                    // Enumerate current directory items
                     var enumerable = new FileSystemEnumerable<DiscoveredItem>(
                         currentDir,
                         transform: (ref FileSystemEntry entry) =>
@@ -129,7 +97,9 @@ public sealed class FastFileSystemCrawler
                             bool isDir = entry.IsDirectory;
                             string name = entry.FileName.ToString();
                             bool isHidden = (entry.Attributes & FileAttributes.Hidden) != 0 || name.StartsWith('.');
-                            uint unixSec = (uint)entry.LastWriteTimeUtc.ToUnixTimeSeconds();
+                            bool isSymlink = (entry.Attributes & FileAttributes.ReparsePoint) != 0;
+                            long rawUnixSec = entry.LastWriteTimeUtc.ToUnixTimeSeconds();
+                            uint unixSec = (uint)Math.Clamp(rawUnixSec, 0L, uint.MaxValue);
                             long size = isDir ? 0 : entry.Length;
 
                             return new DiscoveredItem(
@@ -138,7 +108,8 @@ public sealed class FastFileSystemCrawler
                                 size,
                                 unixSec,
                                 isDir,
-                                isHidden
+                                isHidden,
+                                isSymlink
                             );
                         },
                         options
@@ -148,6 +119,11 @@ public sealed class FastFileSystemCrawler
                     {
                         if (cancellationToken.IsCancellationRequested) break;
 
+                        if (item.IsDirectory && _ignoreMatcher.ShouldIgnoreDirectoryName(item.Name))
+                        {
+                            continue;
+                        }
+
                         string itemFullPath = Path.Combine(currentDir, item.Name);
                         if (_ignoreMatcher.ShouldIgnorePath(itemFullPath, item.Name, item.IsDirectory))
                         {
@@ -156,6 +132,7 @@ public sealed class FastFileSystemCrawler
 
                         if (item.IsDirectory)
                         {
+                            Interlocked.Increment(ref pendingDirs);
                             dirQueue.Enqueue(itemFullPath);
                         }
                         else
@@ -163,10 +140,12 @@ public sealed class FastFileSystemCrawler
                             Interlocked.Increment(ref filesCount);
                         }
 
-                        batchQueue.Enqueue(item);
-                        if (batchQueue.Count >= batchSize)
+                        localBatch.Add(item);
+                        if (localBatch.Count >= batchSize)
                         {
-                            await FlushBatchAsync(false).ConfigureAwait(false);
+                            var batchToFlush = localBatch;
+                            localBatch = new List<DiscoveredItem>(batchSize);
+                            await onBatchDiscovered(batchToFlush).ConfigureAwait(false);
                         }
                     }
                 }
@@ -176,21 +155,18 @@ public sealed class FastFileSystemCrawler
                 }
                 finally
                 {
-                    Interlocked.Decrement(ref activeWorkers);
+                    Interlocked.Decrement(ref pendingDirs);
                 }
             }
 
-            await FlushBatchAsync(true).ConfigureAwait(false);
+            if (localBatch.Count > 0)
+            {
+                await onBatchDiscovered(localBatch).ConfigureAwait(false);
+            }
         }, cancellationToken)).ToArray();
 
         await Task.WhenAll(tasks).ConfigureAwait(false);
 
-        // Final flush
-        while (!batchQueue.IsEmpty)
-        {
-            await FlushBatchAsync(true).ConfigureAwait(false);
-        }
-
-        progress?.Report(new CrawlProgress(filesCount, dirsCount, "Done"));
+        progress?.Report(new CrawlProgress(Interlocked.Read(ref filesCount), Interlocked.Read(ref dirsCount), "Done"));
     }
 }
