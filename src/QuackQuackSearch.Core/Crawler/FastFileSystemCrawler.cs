@@ -1,5 +1,5 @@
-using System.Collections.Concurrent;
 using System.IO.Enumeration;
+using System.Threading.Channels;
 
 namespace QuackQuackSearch.Core.Crawler;
 
@@ -45,8 +45,12 @@ public sealed class FastFileSystemCrawler
         if (!Directory.Exists(rootPath))
             throw new DirectoryNotFoundException($"Directory not found: {rootPath}");
 
-        var dirQueue = new ConcurrentQueue<string>();
-        dirQueue.Enqueue(Path.GetFullPath(rootPath));
+        var dirChannel = Channel.CreateUnbounded<string>(new UnboundedChannelOptions
+        {
+            SingleReader = false,
+            SingleWriter = false
+        });
+        dirChannel.Writer.TryWrite(Path.GetFullPath(rootPath));
 
         long filesCount = 0;
         long dirsCount = 0;
@@ -64,17 +68,17 @@ public sealed class FastFileSystemCrawler
             };
 
             var localBatch = new List<DiscoveredItem>(batchSize);
+            var reader = dirChannel.Reader;
+            var writer = dirChannel.Writer;
 
             while (!cancellationToken.IsCancellationRequested)
             {
-                if (!dirQueue.TryDequeue(out string? currentDir))
+                if (!reader.TryRead(out string? currentDir))
                 {
-                    if (Volatile.Read(ref pendingDirs) <= 0 && dirQueue.IsEmpty)
+                    if (!await reader.WaitToReadAsync(cancellationToken).ConfigureAwait(false))
                     {
                         break;
                     }
-
-                    await Task.Delay(1, cancellationToken).ConfigureAwait(false);
                     continue;
                 }
 
@@ -133,7 +137,7 @@ public sealed class FastFileSystemCrawler
                         if (item.IsDirectory)
                         {
                             Interlocked.Increment(ref pendingDirs);
-                            dirQueue.Enqueue(itemFullPath);
+                            writer.TryWrite(itemFullPath);
                         }
                         else
                         {
@@ -155,7 +159,10 @@ public sealed class FastFileSystemCrawler
                 }
                 finally
                 {
-                    Interlocked.Decrement(ref pendingDirs);
+                    if (Interlocked.Decrement(ref pendingDirs) <= 0)
+                    {
+                        writer.TryComplete();
+                    }
                 }
             }
 

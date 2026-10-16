@@ -30,6 +30,7 @@ public sealed class LocalInotifyWatcher : IDisposable
     public int TotalActiveWatches => _wdToPath.Count;
 
     public event Action<string, string>? OnError;
+    public event Action? OnQueueOverflow;
 
     public LocalInotifyWatcher(SearchIndexEngine engine, IgnoreMatcher? ignoreMatcher = null)
     {
@@ -120,8 +121,7 @@ public sealed class LocalInotifyWatcher : IDisposable
                     {
                         if (indexDiscoveredFiles)
                         {
-                            uint nowSec = (uint)Math.Clamp(DateTimeOffset.UtcNow.ToUnixTimeSeconds(), 0L, uint.MaxValue);
-                            _engine.AddOrUpdate(subDir, isDirectory: true, size: 0, nowSec, subName.StartsWith('.'));
+                            UpdateDirectoryInIndex(subDir, subName);
                         }
                         dirQueue.Enqueue(subDir);
                     }
@@ -267,6 +267,7 @@ public sealed class LocalInotifyWatcher : IDisposable
         if ((mask & (uint)InotifyNative.Mask.IN_Q_OVERFLOW) != 0)
         {
             OnError?.Invoke("inotify", "Event queue overflowed (IN_Q_OVERFLOW). Resync advised.");
+            OnQueueOverflow?.Invoke();
             return;
         }
 
@@ -297,8 +298,7 @@ public sealed class LocalInotifyWatcher : IDisposable
         {
             if (isDir)
             {
-                uint nowSec = (uint)Math.Clamp(DateTimeOffset.UtcNow.ToUnixTimeSeconds(), 0L, uint.MaxValue);
-                _engine.AddOrUpdate(fullPath, isDirectory: true, size: 0, nowSec, name.StartsWith('.'));
+                UpdateDirectoryInIndex(fullPath, name);
                 AddWatchTree(fullPath, indexDiscoveredFiles: true);
             }
             else
@@ -324,6 +324,22 @@ public sealed class LocalInotifyWatcher : IDisposable
                 _engine.RemoveSubtree(fullPath);
             }
             _engine.Remove(fullPath);
+        }
+    }
+
+    private void UpdateDirectoryInIndex(string fullPath, string name)
+    {
+        try
+        {
+            long rawUnixSec = Directory.Exists(fullPath)
+                ? new DateTimeOffset(Directory.GetLastWriteTimeUtc(fullPath)).ToUnixTimeSeconds()
+                : DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+            uint unixSec = (uint)Math.Clamp(rawUnixSec, 0L, uint.MaxValue);
+            _engine.AddOrUpdate(fullPath, isDirectory: true, size: 0, unixSec, name.StartsWith('.'));
+        }
+        catch (Exception)
+        {
+            // Transient directory operations ignored
         }
     }
 

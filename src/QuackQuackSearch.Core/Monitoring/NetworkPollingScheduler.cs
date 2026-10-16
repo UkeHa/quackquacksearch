@@ -192,6 +192,7 @@ public sealed class NetworkPollingScheduler : IDisposable
 
             await Task.Run(async () =>
             {
+                bool isInitialScan = _engine.DirectoryTable.GetDirectoryIdsInSubtree(entry.Path).Count == 0;
                 var stagedItems = new List<DiscoveredItem>();
                 var stageLock = new Lock();
                 var crawler = new FastFileSystemCrawler(_ignoreMatcher, maxDegreeOfParallelism: 4);
@@ -204,7 +205,10 @@ public sealed class NetworkPollingScheduler : IDisposable
                         stagedItems.AddRange(batch);
                         count = stagedItems.Count;
                     }
-                    _engine.BulkAdd(batch);
+                    if (isInitialScan)
+                    {
+                        _engine.BulkAdd(batch);
+                    }
                     lock (_lock)
                     {
                         status.CurrentCrawlFiles = count;
@@ -213,7 +217,10 @@ public sealed class NetworkPollingScheduler : IDisposable
                 }, progress: progress, cancellationToken: crawlCts.Token).ConfigureAwait(false);
 
                 crawlCts.Token.ThrowIfCancellationRequested();
-                _engine.ReplaceSubtree(entry.Path, stagedItems);
+                if (!isInitialScan)
+                {
+                    _engine.ReplaceSubtree(entry.Path, stagedItems);
+                }
             }, crawlCts.Token).ConfigureAwait(false);
 
             lock (_lock)

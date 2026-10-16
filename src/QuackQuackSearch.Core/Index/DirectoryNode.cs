@@ -1,7 +1,10 @@
+using MessagePack;
+
 namespace QuackQuackSearch.Core.Index;
 
+[MessagePackObject]
 public readonly record struct DirectoryNode(
-    uint Id,
-    uint ParentId,
-    string Name
+    [property: Key(0)] uint Id,
+    [property: Key(1)] uint ParentId,
+    [property: Key(2)] string Name
 );

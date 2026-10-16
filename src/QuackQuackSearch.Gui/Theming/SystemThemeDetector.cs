@@ -18,7 +18,7 @@ public sealed record SystemColorPalette(
     Color Foreground,
     Color Accent);
 
-public static class SystemThemeDetector
+public static partial class SystemThemeDetector
 {
     public static SystemColorPalette DetectSystemPalette()
     {
@@ -495,6 +495,12 @@ public static class SystemThemeDetector
         return true;
     }
 
+    [GeneratedRegex(@"@import\s+url\([""']?([^""')]+)[""']?\)", RegexOptions.IgnoreCase)]
+    private static partial Regex GtkImportRegex();
+
+    [GeneratedRegex(@"@define-color\s+([a-zA-Z0-9_-]+)\s+([^;]+);")]
+    private static partial Regex GtkDefineColorRegex();
+
     private static void CollectGtkCssColorVariables(string cssPath, Dictionary<string, string> vars, int depth)
     {
         if (depth > 2 || !File.Exists(cssPath)) return;
@@ -515,7 +521,7 @@ public static class SystemThemeDetector
         string? dir = Path.GetDirectoryName(cssPath);
         if (dir != null)
         {
-            foreach (Match importMatch in Regex.Matches(content, @"@import\s+url\([""']?([^""')]+)[""']?\)", RegexOptions.IgnoreCase))
+            foreach (Match importMatch in GtkImportRegex().Matches(content))
             {
                 string rel = importMatch.Groups[1].Value.Trim();
                 if (!rel.StartsWith("resource://", StringComparison.OrdinalIgnoreCase))
@@ -526,7 +532,7 @@ public static class SystemThemeDetector
             }
         }
 
-        foreach (Match match in Regex.Matches(content, @"@define-color\s+([a-zA-Z0-9_-]+)\s+([^;]+);"))
+        foreach (Match match in GtkDefineColorRegex().Matches(content))
         {
             string name = match.Groups[1].Value.Trim();
             string val = match.Groups[2].Value.Trim();

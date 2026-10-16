@@ -19,11 +19,13 @@ public sealed class QuackDaemonService : IDaemonService, IDisposable
     private readonly LocalInotifyWatcher _inotifyWatcher;
     private readonly NetworkPollingScheduler _networkPoller;
     private readonly ConcurrentDictionary<string, CrawlProgress> _activeCrawls = new(StringComparer.Ordinal);
-    private readonly System.Timers.Timer _snapshotTimer;
+    private readonly CancellationTokenSource _daemonCts = new();
+    private Task? _snapshotLoopTask;
     private readonly SemaphoreSlim _configLock = new(1, 1);
     private readonly SemaphoreSlim _snapshotLock = new(1, 1);
     private readonly DateTimeOffset _startTime = DateTimeOffset.UtcNow;
-    private bool _isDisposed;
+    private volatile bool _isDisposed;
+    private int _isRescanningOverflow;
 
     public ObjectPath ObjectPath => new("/org/quackquacksearch/Daemon");
     public SearchIndexEngine Engine => _engine;
@@ -35,15 +37,50 @@ public sealed class QuackDaemonService : IDaemonService, IDisposable
         _engine = new SearchIndexEngine();
         _ignoreMatcher = CreateCombinedIgnoreMatcher(_config);
         _inotifyWatcher = new LocalInotifyWatcher(_engine, _ignoreMatcher);
+        _inotifyWatcher.OnError += (src, msg) => Console.WriteLine($"[Daemon] Watcher warning ({src}): {msg}");
+        _inotifyWatcher.OnQueueOverflow += HandleInotifyQueueOverflow;
         _networkPoller = new NetworkPollingScheduler(_engine, _ignoreMatcher);
-        _networkPoller.OnPollCompleted += async _ => await SaveSnapshotSafeAsync();
+        _networkPoller.OnPollCompleted += path => { _ = SaveSnapshotSafeAsync(); };
+    }
 
-        int intervalMinutes = Math.Max(1, _config.Indexing.SaveIntervalMinutes);
-        _snapshotTimer = new System.Timers.Timer(TimeSpan.FromMinutes(intervalMinutes).TotalMilliseconds)
+    private void HandleInotifyQueueOverflow()
+    {
+        if (_isDisposed || Interlocked.CompareExchange(ref _isRescanningOverflow, 1, 0) != 0)
+            return;
+
+        _ = Task.Run(async () =>
         {
-            AutoReset = true
-        };
-        _snapshotTimer.Elapsed += async (_, _) => await SaveSnapshotSafeAsync();
+            try
+            {
+                Console.WriteLine("[Daemon] Performing background rescan after inotify queue overflow...");
+                await CrawlConfiguredPathsAsync(_daemonCts.Token);
+                await SaveSnapshotSafeAsync();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[Daemon] Overflow rescan failed: {ex.Message}");
+            }
+            finally
+            {
+                Interlocked.Exchange(ref _isRescanningOverflow, 0);
+            }
+        });
+    }
+
+    private async Task RunPeriodicSnapshotLoopAsync(TimeSpan interval, CancellationToken cancellationToken)
+    {
+        using var timer = new PeriodicTimer(interval);
+        try
+        {
+            while (await timer.WaitForNextTickAsync(cancellationToken).ConfigureAwait(false))
+            {
+                await SaveSnapshotSafeAsync().ConfigureAwait(false);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // Expected on shutdown
+        }
     }
 
     private static IgnoreMatcher CreateCombinedIgnoreMatcher(QuackConfig config)
@@ -61,6 +98,23 @@ public sealed class QuackDaemonService : IDaemonService, IDisposable
         _ignoreMatcher = matcher;
         _inotifyWatcher.UpdateIgnoreMatcher(matcher);
         _networkPoller.UpdateIgnoreMatcher(matcher);
+    }
+
+    private void SaveConfigUnsafe()
+    {
+        // Sync Appearance from disk in case the GUI changed ThemeMode while Daemon was running
+        try
+        {
+            string filePath = ConfigManager.GetConfigFilePath();
+            if (File.Exists(filePath))
+            {
+                var diskConfig = ConfigManager.LoadOrCreateDefault();
+                _config.Appearance = diskConfig.Appearance;
+            }
+        }
+        catch { }
+
+        ConfigManager.Save(_config);
     }
 
     public async Task InitializeAsync(CancellationToken cancellationToken = default)
@@ -87,8 +141,9 @@ public sealed class QuackDaemonService : IDaemonService, IDisposable
         // Setup active monitoring for configured paths
         SetupMonitoring();
 
-        // Start periodic snapshot timer
-        _snapshotTimer.Start();
+        // Start periodic snapshot loop
+        int intervalMinutes = Math.Max(1, _config.Indexing.SaveIntervalMinutes);
+        _snapshotLoopTask = Task.Run(() => RunPeriodicSnapshotLoopAsync(TimeSpan.FromMinutes(intervalMinutes), _daemonCts.Token));
     }
 
     private void SetupMonitoring()
@@ -239,7 +294,7 @@ public sealed class QuackDaemonService : IDaemonService, IDisposable
             };
 
             _config.Paths.Add(entry);
-            ConfigManager.Save(_config);
+            SaveConfigUnsafe();
             RefreshIgnoreMatcherUnsafe();
             pathsSnapshot = [.. _config.Paths];
         }
@@ -283,7 +338,7 @@ public sealed class QuackDaemonService : IDaemonService, IDisposable
                 Path.GetFullPath(p.Path).TrimEnd(Path.DirectorySeparatorChar).Equals(normalized, StringComparison.Ordinal));
             if (removedCount > 0)
             {
-                ConfigManager.Save(_config);
+                SaveConfigUnsafe();
                 RefreshIgnoreMatcherUnsafe();
             }
             pathsSnapshot = [.. _config.Paths];
@@ -327,7 +382,7 @@ public sealed class QuackDaemonService : IDaemonService, IDisposable
 
             entry.Enabled = enabled;
             entryType = entry.Type;
-            ConfigManager.Save(_config);
+            SaveConfigUnsafe();
             pathsSnapshot = [.. _config.Paths];
         }
         finally
@@ -453,7 +508,7 @@ public sealed class QuackDaemonService : IDaemonService, IDisposable
             if (!entry.CustomExcludes.Contains(excludePattern, StringComparer.Ordinal))
             {
                 entry.CustomExcludes.Add(excludePattern);
-                ConfigManager.Save(_config);
+                SaveConfigUnsafe();
                 RefreshIgnoreMatcherUnsafe();
                 added = true;
             }
@@ -489,7 +544,7 @@ public sealed class QuackDaemonService : IDaemonService, IDisposable
             int removed = entry.CustomExcludes.RemoveAll(x => x.Equals(excludePattern, StringComparison.Ordinal));
             if (removed > 0)
             {
-                ConfigManager.Save(_config);
+                SaveConfigUnsafe();
                 RefreshIgnoreMatcherUnsafe();
                 entryPath = entry.Path;
                 entryType = entry.Type;
@@ -554,7 +609,7 @@ public sealed class QuackDaemonService : IDaemonService, IDisposable
                 .Where(e => !string.IsNullOrWhiteSpace(e) && PathExclusionValidator.IsValid(entry.Path, e, out _))
                 .Distinct(StringComparer.Ordinal)
                 .ToList();
-            ConfigManager.Save(_config);
+            SaveConfigUnsafe();
             RefreshIgnoreMatcherUnsafe();
         }
         finally
@@ -679,7 +734,17 @@ public sealed class QuackDaemonService : IDaemonService, IDisposable
     {
         if (_isDisposed) return;
 
-        if (!await _snapshotLock.WaitAsync(0))
+        bool acquired = false;
+        try
+        {
+            acquired = await _snapshotLock.WaitAsync(0);
+        }
+        catch (ObjectDisposedException)
+        {
+            return;
+        }
+
+        if (!acquired)
         {
             // A snapshot save is already in progress
             return;
@@ -687,7 +752,10 @@ public sealed class QuackDaemonService : IDaemonService, IDisposable
 
         try
         {
-            await IndexSerializer.SaveAsync(_engine);
+            if (!_isDisposed)
+            {
+                await IndexSerializer.SaveAsync(_engine);
+            }
         }
         catch (Exception ex)
         {
@@ -695,7 +763,7 @@ public sealed class QuackDaemonService : IDaemonService, IDisposable
         }
         finally
         {
-            _snapshotLock.Release();
+            try { _snapshotLock.Release(); } catch (ObjectDisposedException) { }
         }
     }
 
@@ -704,8 +772,9 @@ public sealed class QuackDaemonService : IDaemonService, IDisposable
         if (_isDisposed) return;
         _isDisposed = true;
 
-        _snapshotTimer.Stop();
-        _snapshotTimer.Dispose();
+        try { _daemonCts.Cancel(); } catch { }
+        try { _snapshotLoopTask?.Wait(TimeSpan.FromMilliseconds(500)); } catch { }
+        _daemonCts.Dispose();
 
         _inotifyWatcher.Dispose();
         _networkPoller.Dispose();

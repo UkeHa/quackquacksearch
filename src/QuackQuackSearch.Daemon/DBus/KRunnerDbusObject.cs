@@ -90,86 +90,23 @@ public sealed class KRunnerDbusObject(SearchIndexEngine engine, QuackConfig conf
     {
         if (string.IsNullOrWhiteSpace(id)) return Task.CompletedTask;
 
-        try
+        if (action_id == "open_folder")
         {
-            if (action_id == "open_folder")
+            if (!Core.System.DesktopActions.TryOpenContainingFolder(id, out string? err) && err != null)
             {
-                string? parentDir = Path.GetDirectoryName(id);
-                if (!string.IsNullOrEmpty(parentDir) && Directory.Exists(parentDir))
-                {
-                    try
-                    {
-                        var psi = new ProcessStartInfo
-                        {
-                            FileName = "dolphin",
-                            UseShellExecute = false,
-                            CreateNoWindow = true
-                        };
-                        psi.ArgumentList.Add("--select");
-                        psi.ArgumentList.Add(id);
-                        Process.Start(psi);
-                    }
-                    catch
-                    {
-                        var fallbackPsi = new ProcessStartInfo
-                        {
-                            FileName = "xdg-open",
-                            UseShellExecute = false,
-                            CreateNoWindow = true
-                        };
-                        fallbackPsi.ArgumentList.Add(parentDir);
-                        Process.Start(fallbackPsi);
-                    }
-                }
-            }
-            else if (action_id == "copy_path")
-            {
-                try
-                {
-                    var psi = new ProcessStartInfo
-                    {
-                        FileName = "wl-copy",
-                        UseShellExecute = false,
-                        CreateNoWindow = true
-                    };
-                    psi.ArgumentList.Add(id);
-                    Process.Start(psi);
-                }
-                catch
-                {
-                    var xclipPsi = new ProcessStartInfo
-                    {
-                        FileName = "xclip",
-                        UseShellExecute = false,
-                        CreateNoWindow = true,
-                        RedirectStandardInput = true
-                    };
-                    xclipPsi.ArgumentList.Add("-selection");
-                    xclipPsi.ArgumentList.Add("clipboard");
-                    xclipPsi.ArgumentList.Add("-i");
-                    var proc = Process.Start(xclipPsi);
-                    if (proc != null)
-                    {
-                        proc.StandardInput.Write(id);
-                        proc.StandardInput.Close();
-                    }
-                }
-            }
-            else
-            {
-                var psi = new ProcessStartInfo
-                {
-                    FileName = "xdg-open",
-                    UseShellExecute = false,
-                    CreateNoWindow = true
-                };
-                psi.ArgumentList.Add(id);
-                Process.Start(psi);
+                Console.WriteLine($"[KRunner] Failed to open folder for '{id}': {err}");
             }
         }
-        catch (Exception ex)
+        else if (action_id == "copy_path")
         {
-            Console.WriteLine($"[KRunner] Failed to execute action '{action_id}' on '{id}': {ex.Message}");
+            Core.System.DesktopActions.TryCopyToClipboard(id);
+        }
+        else
+        {
+            if (!Core.System.DesktopActions.TryOpenFile(id, out string? err) && err != null)
+            {
+                Console.WriteLine($"[KRunner] Failed to open '{id}': {err}");
+            }
         }
 
         return Task.CompletedTask;

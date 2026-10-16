@@ -60,6 +60,25 @@ public class IgnoreMatcherTests
         matcher.ShouldIgnorePath("/home/testuser/secret_notes.txt", "secret_notes.txt", isDirectory: false).Should().BeFalse();
     }
 
+    [Fact]
+    public void PathScopedRelativeExclusion_ShouldNotLeakToOtherMonitoredRoots()
+    {
+        var matcher = new IgnoreMatcher(
+            globalPatterns: ["**/.git/**"],
+            pathExcludes:
+            [
+                (RootPath: "/home/user/projectA", Excludes: (IEnumerable<string>)["secret"])
+            ]
+        );
+
+        matcher.ShouldIgnorePath("/home/user/projectA/secret", "secret", isDirectory: true).Should().BeTrue();
+        matcher.ShouldIgnorePath("/home/user/projectA/secret/data.txt", "data.txt", isDirectory: false).Should().BeTrue();
+
+        // Should NOT ignore "secret" under projectB
+        matcher.ShouldIgnorePath("/home/user/projectB/secret", "secret", isDirectory: true).Should().BeFalse();
+        matcher.ShouldIgnorePath("/home/user/projectB/secret/data.txt", "data.txt", isDirectory: false).Should().BeFalse();
+    }
+
     [Theory]
     [InlineData("/home/uke", "/home/uke/secret", true)]
     [InlineData("/home/uke", "/home/uke/secret/password.txt", true)]

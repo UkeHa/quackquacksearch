@@ -342,6 +342,11 @@ public sealed class SearchIndexEngine : IDisposable
             int chunkSize = (count + coreCount - 1) / coreCount;
             long now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
 
+            bool queryCanSpanDirAndFile = options.SearchInPath && (hasWildcards || query.Contains('/'));
+            Dictionary<uint, double>? matchingDirs = options.SearchInPath && !queryCanSpanDirAndFile
+                ? _directoryTable.FindMatchingDirectoryScores(query, hasWildcards)
+                : null;
+
             var localResults = new List<(CompactFileEntry Entry, double Score)>[coreCount];
 
             Parallel.For(0, coreCount, i =>
@@ -403,12 +408,25 @@ public sealed class SearchIndexEngine : IDisposable
 
                     if (!matched && options.SearchInPath)
                     {
-                        string dirPath = _directoryTable.ResolveFullPath(entry.DirectoryId);
-                        string fullPath = dirPath == "/" ? "/" + entry.Name : $"{dirPath}/{entry.Name}";
-                        if (SimdMatcher.Matches(fullPath.AsSpan(), query.AsSpan(), hasWildcards))
+                        if (matchingDirs != null)
                         {
-                            score = ResultRanker.CalculateScore(fullPath, query, entry.ModifiedUnixSeconds) * 0.8;
-                            matched = true;
+                            if (matchingDirs.TryGetValue(entry.DirectoryId, out double dirScore))
+                            {
+                                long age = Math.Max(0, now - entry.ModifiedUnixSeconds);
+                                double recency = age < 86400 * 7 ? 30.0 : (age < 86400 * 30 ? 15.0 : 0.0);
+                                score = (dirScore + recency) * 0.8;
+                                matched = true;
+                            }
+                        }
+                        else
+                        {
+                            string dirPath = _directoryTable.ResolveFullPath(entry.DirectoryId);
+                            string fullPath = dirPath == "/" ? "/" + entry.Name : $"{dirPath}/{entry.Name}";
+                            if (SimdMatcher.Matches(fullPath.AsSpan(), query.AsSpan(), hasWildcards))
+                            {
+                                score = ResultRanker.CalculateScore(fullPath, query, entry.ModifiedUnixSeconds) * 0.8;
+                                matched = true;
+                            }
                         }
                     }
 
@@ -492,6 +510,13 @@ public sealed class SearchIndexEngine : IDisposable
             _directoryTable.LoadSnapshot(nodes);
             _entries.Clear();
             _entryIndex.Clear();
+
+            if (entries is ICollection<CompactFileEntry> col)
+            {
+                _entries.EnsureCapacity(col.Count);
+                _entryIndex.EnsureCapacity(col.Count);
+            }
+
             foreach (var entry in entries)
             {
                 var key = (entry.DirectoryId, entry.Name);

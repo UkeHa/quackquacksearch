@@ -28,7 +28,7 @@ public sealed class IgnoreMatcher
 
     public IgnoreMatcher(IEnumerable<string> globalPatterns, IEnumerable<(string RootPath, IEnumerable<string> Excludes)>? pathExcludes)
     {
-        _exactDirNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        _exactDirNames = new HashSet<string>(StringComparer.Ordinal);
         _excludedPathPrefixes = new List<string>();
         _globPatterns = new List<string>();
 
@@ -45,7 +45,7 @@ public sealed class IgnoreMatcher
 
     public IgnoreMatcher(IEnumerable<string> patterns, string? rootPath)
     {
-        _exactDirNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        _exactDirNames = new HashSet<string>(StringComparer.Ordinal);
         _excludedPathPrefixes = new List<string>();
         _globPatterns = new List<string>();
 
@@ -101,11 +101,6 @@ public sealed class IgnoreMatcher
                 if (!_excludedPathPrefixes.Contains(resolved, StringComparer.Ordinal))
                 {
                     _excludedPathPrefixes.Add(resolved);
-                }
-
-                if (!trimmed.Contains('/') && !trimmed.Contains('\\'))
-                {
-                    _exactDirNames.Add(trimmed);
                 }
                 continue;
             }

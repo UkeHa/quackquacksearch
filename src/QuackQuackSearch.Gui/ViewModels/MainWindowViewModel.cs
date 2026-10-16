@@ -121,13 +121,10 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged, IDisposable
         IsLoading = true;
         try
         {
-            var conn = Connection.Session;
-            await conn.ConnectAsync();
-            bool active = await conn.IsServiceActiveAsync("org.quackquacksearch.Daemon");
+            _daemonService = await DaemonClient.TryGetServiceAsync();
 
-            if (active)
+            if (_daemonService != null)
             {
-                _daemonService = conn.CreateProxy<IDaemonService>("org.quackquacksearch.Daemon", "/org/quackquacksearch/Daemon");
                 var status = await _daemonService.GetStatusAsync();
                 IsDaemonConnected = true;
                 StatusDaemon = Loc.StatusDaemonConnected;
@@ -167,12 +164,15 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged, IDisposable
         _debounceTimer.Start();
     }
 
+    private int _searchVersion;
+
     public async Task ExecuteSearchAsync()
     {
+        int myVersion = Interlocked.Increment(ref _searchVersion);
         string query = SearchText.Trim();
         var sw = Stopwatch.StartNew();
 
-        _allCurrentResults.Clear();
+        var fetchedResults = new List<FileItemModel>();
 
         if (string.IsNullOrEmpty(query))
         {
@@ -183,7 +183,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged, IDisposable
                     var dtos = await _daemonService.SearchAsync(string.Empty, 100);
                     foreach (var d in dtos)
                     {
-                        _allCurrentResults.Add(ToModel(d));
+                        fetchedResults.Add(ToModel(d));
                     }
                 }
                 catch { }
@@ -193,7 +193,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged, IDisposable
                 var recent = _fallbackEngine.GetRecentEntries(100);
                 foreach (var r in recent)
                 {
-                    _allCurrentResults.Add(ToModel(r));
+                    fetchedResults.Add(ToModel(r));
                 }
             }
         }
@@ -206,7 +206,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged, IDisposable
                     var dtos = await _daemonService.SearchWithOptionsAsync(query, 200, fuzzy: true);
                     foreach (var d in dtos)
                     {
-                        _allCurrentResults.Add(ToModel(d));
+                        fetchedResults.Add(ToModel(d));
                     }
                 }
                 catch (Exception)
@@ -222,12 +222,19 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged, IDisposable
                 var matches = _fallbackEngine.Search(query, new SearchOptions { MaxResults = 200, Fuzzy = true });
                 foreach (var m in matches)
                 {
-                    _allCurrentResults.Add(ToModel(m));
+                    fetchedResults.Add(ToModel(m));
                 }
             }
         }
 
+        if (myVersion != Volatile.Read(ref _searchVersion))
+        {
+            return;
+        }
+
         sw.Stop();
+        _allCurrentResults.Clear();
+        _allCurrentResults.AddRange(fetchedResults);
         ApplyFilterAndRefreshList();
         StatusMiddle = Loc.FormatSearchHits(Results.Count, sw.Elapsed.TotalMilliseconds);
     }
@@ -272,20 +279,9 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged, IDisposable
         item ??= SelectedItem;
         if (item == null) return;
 
-        try
+        if (!Core.System.DesktopActions.TryOpenFile(item.FullPath, out string? error))
         {
-            var psi = new ProcessStartInfo
-            {
-                FileName = "xdg-open",
-                UseShellExecute = false,
-                CreateNoWindow = true
-            };
-            psi.ArgumentList.Add(item.FullPath);
-            Process.Start(psi);
-        }
-        catch (Exception ex)
-        {
-            StatusMiddle = $"Fehler beim Öffnen: {ex.Message}";
+            StatusMiddle = $"Fehler beim Öffnen: {error}";
         }
     }
 
@@ -294,30 +290,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged, IDisposable
         item ??= SelectedItem;
         if (item == null) return;
 
-        try
-        {
-            var psi = new ProcessStartInfo
-            {
-                FileName = "dolphin",
-                UseShellExecute = false,
-                CreateNoWindow = true
-            };
-            psi.ArgumentList.Add("--select");
-            psi.ArgumentList.Add(item.FullPath);
-            Process.Start(psi);
-        }
-        catch
-        {
-            string dir = Path.GetDirectoryName(item.FullPath) ?? "/";
-            var fallbackPsi = new ProcessStartInfo
-            {
-                FileName = "xdg-open",
-                UseShellExecute = false,
-                CreateNoWindow = true
-            };
-            fallbackPsi.ArgumentList.Add(dir);
-            Process.Start(fallbackPsi);
-        }
+        Core.System.DesktopActions.TryOpenContainingFolder(item.FullPath, out _);
     }
 
     public void CopyPath(FileItemModel? item)
@@ -325,7 +298,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged, IDisposable
         item ??= SelectedItem;
         if (item == null) return;
 
-        CopyToClipboard(item.FullPath);
+        Core.System.DesktopActions.TryCopyToClipboard(item.FullPath);
         StatusMiddle = Loc.PathCopied;
     }
 
@@ -334,48 +307,8 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged, IDisposable
         item ??= SelectedItem;
         if (item == null) return;
 
-        CopyToClipboard(item.Name);
+        Core.System.DesktopActions.TryCopyToClipboard(item.Name);
         StatusMiddle = Loc.NameCopied;
-    }
-
-    private static void CopyToClipboard(string text)
-    {
-        try
-        {
-            var psi = new ProcessStartInfo
-            {
-                FileName = "wl-copy",
-                UseShellExecute = false,
-                CreateNoWindow = true
-            };
-            psi.ArgumentList.Add(text);
-            var p = Process.Start(psi);
-            p?.WaitForExit(500);
-        }
-        catch
-        {
-            try
-            {
-                var xclipPsi = new ProcessStartInfo
-                {
-                    FileName = "xclip",
-                    UseShellExecute = false,
-                    CreateNoWindow = true,
-                    RedirectStandardInput = true
-                };
-                xclipPsi.ArgumentList.Add("-selection");
-                xclipPsi.ArgumentList.Add("clipboard");
-                xclipPsi.ArgumentList.Add("-i");
-                var p = Process.Start(xclipPsi);
-                if (p != null)
-                {
-                    p.StandardInput.Write(text);
-                    p.StandardInput.Close();
-                    p.WaitForExit(500);
-                }
-            }
-            catch { }
-        }
     }
 
     private static FileItemModel ToModel(SearchResult r) => new(

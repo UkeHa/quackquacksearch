@@ -101,22 +101,7 @@ public static class Program
         return 1;
     }
 
-    private static async Task<IDaemonService?> TryGetDaemonServiceAsync()
-    {
-        try
-        {
-            var conn = Connection.Session;
-            await conn.ConnectAsync();
-            bool hasOwner = await conn.IsServiceActiveAsync("org.quackquacksearch.Daemon");
-            if (!hasOwner) return null;
-
-            return conn.CreateProxy<IDaemonService>("org.quackquacksearch.Daemon", "/org/quackquacksearch/Daemon");
-        }
-        catch
-        {
-            return null;
-        }
-    }
+    private static Task<IDaemonService?> TryGetDaemonServiceAsync() => DaemonClient.TryGetServiceAsync();
 
     private static async Task<int> HandleSearchAsync(string[] args)
     {

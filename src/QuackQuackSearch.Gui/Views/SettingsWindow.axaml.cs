@@ -176,19 +176,16 @@ public partial class SettingsWindow : Window
 
                 selected.CustomExcludes.Remove(selectedExclude);
                 _currentExcludes.Remove(selectedExclude);
-                ConfigManager.Save(_config);
 
-                try
+                var daemon = await DaemonClient.TryGetServiceAsync();
+                if (daemon != null)
                 {
-                    var conn = Connection.Session;
-                    await conn.ConnectAsync();
-                    if (await conn.IsServiceActiveAsync("org.quackquacksearch.Daemon"))
-                    {
-                        var daemon = conn.CreateProxy<IDaemonService>("org.quackquacksearch.Daemon", "/org/quackquacksearch/Daemon");
-                        await daemon.RemoveExcludeAsync(selected.Path, selectedExclude);
-                    }
+                    try { await daemon.RemoveExcludeAsync(selected.Path, selectedExclude); } catch { }
                 }
-                catch { }
+                else
+                {
+                    ConfigManager.Save(_config);
+                }
             };
         }
 
@@ -313,21 +310,22 @@ public partial class SettingsWindow : Window
         _isClosing = true;
 
         _statusTimer?.Stop();
-        ConfigManager.Save(_config);
-        try
+        var daemon = await DaemonClient.TryGetServiceAsync();
+        if (daemon != null)
         {
-            var conn = Connection.Session;
-            await conn.ConnectAsync();
-            if (await conn.IsServiceActiveAsync("org.quackquacksearch.Daemon"))
+            try
             {
-                var daemon = conn.CreateProxy<IDaemonService>("org.quackquacksearch.Daemon", "/org/quackquacksearch/Daemon");
                 foreach (var p in _paths)
                 {
                     await daemon.SetPathEnabledAsync(p.Path, p.Enabled);
                 }
             }
+            catch { }
         }
-        catch { }
+        else
+        {
+            ConfigManager.Save(_config);
+        }
         Close();
     }
 
@@ -338,12 +336,9 @@ public partial class SettingsWindow : Window
 
         try
         {
-            var conn = Connection.Session;
-            await conn.ConnectAsync();
-            if (!await conn.IsServiceActiveAsync("org.quackquacksearch.Daemon"))
-                return;
+            var daemon = await DaemonClient.TryGetServiceAsync();
+            if (daemon == null) return;
 
-            var daemon = conn.CreateProxy<IDaemonService>("org.quackquacksearch.Daemon", "/org/quackquacksearch/Daemon");
             var dtos = await daemon.ListPathsAsync();
 
             var map = dtos.ToDictionary(
@@ -371,11 +366,9 @@ public partial class SettingsWindow : Window
     {
         try
         {
-            var conn = Connection.Session;
-            await conn.ConnectAsync();
-            if (await conn.IsServiceActiveAsync("org.quackquacksearch.Daemon"))
+            var daemon = await DaemonClient.TryGetServiceAsync();
+            if (daemon != null)
             {
-                var daemon = conn.CreateProxy<IDaemonService>("org.quackquacksearch.Daemon", "/org/quackquacksearch/Daemon");
                 await daemon.TriggerRescanAsync(path);
                 await RefreshPathStatusesAsync();
             }
@@ -406,19 +399,16 @@ public partial class SettingsWindow : Window
         {
             selected.CustomExcludes.Add(pattern);
             _currentExcludes.Add(pattern);
-            ConfigManager.Save(_config);
 
-            try
+            var daemon = await DaemonClient.TryGetServiceAsync();
+            if (daemon != null)
             {
-                var conn = Connection.Session;
-                await conn.ConnectAsync();
-                if (await conn.IsServiceActiveAsync("org.quackquacksearch.Daemon"))
-                {
-                    var daemon = conn.CreateProxy<IDaemonService>("org.quackquacksearch.Daemon", "/org/quackquacksearch/Daemon");
-                    await daemon.AddExcludeAsync(selected.Path, pattern);
-                }
+                try { await daemon.AddExcludeAsync(selected.Path, pattern); } catch { }
             }
-            catch { }
+            else
+            {
+                ConfigManager.Save(_config);
+            }
         }
 
         return true;
@@ -475,22 +465,19 @@ public partial class SettingsWindow : Window
                 vm.UpdateLiveStatus("Scanning", 0, localPath);
                 _paths.Add(vm);
                 _config.Paths.Add(entry);
-                ConfigManager.Save(_config);
 
                 // Notify daemon in background so UI stays responsive and shows live crawl status
                 _ = Task.Run(async () =>
                 {
-                    try
+                    var daemon = await DaemonClient.TryGetServiceAsync();
+                    if (daemon != null)
                     {
-                        var conn = Connection.Session;
-                        await conn.ConnectAsync();
-                        if (await conn.IsServiceActiveAsync("org.quackquacksearch.Daemon"))
-                        {
-                            var daemon = conn.CreateProxy<IDaemonService>("org.quackquacksearch.Daemon", "/org/quackquacksearch/Daemon");
-                            await daemon.AddPathAsync(localPath, detectedMode);
-                        }
+                        try { await daemon.AddPathAsync(localPath, detectedMode); } catch { }
                     }
-                    catch { }
+                    else
+                    {
+                        ConfigManager.Save(_config);
+                    }
                 });
             }
         }
@@ -527,19 +514,16 @@ public partial class SettingsWindow : Window
         {
             _paths.Remove(selected);
             _config.Paths.Remove(selected.Entry);
-            ConfigManager.Save(_config);
 
-            try
+            var daemon = await DaemonClient.TryGetServiceAsync();
+            if (daemon != null)
             {
-                var conn = Connection.Session;
-                await conn.ConnectAsync();
-                if (await conn.IsServiceActiveAsync("org.quackquacksearch.Daemon"))
-                {
-                    var daemon = conn.CreateProxy<IDaemonService>("org.quackquacksearch.Daemon", "/org/quackquacksearch/Daemon");
-                    await daemon.RemovePathAsync(selected.Path);
-                }
+                try { await daemon.RemovePathAsync(selected.Path); } catch { }
             }
-            catch { }
+            else
+            {
+                ConfigManager.Save(_config);
+            }
         }
     }
 }
