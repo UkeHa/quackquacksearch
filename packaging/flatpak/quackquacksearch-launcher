@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+APP_LIB="/app/lib/quackquacksearch"
+
+case "${1:-}" in
+    cli|--cli)
+        shift
+        exec "$APP_LIB/QuackQuackSearch.Cli" "$@"
+        ;;
+    daemon|--daemon)
+        shift
+        exec "$APP_LIB/QuackQuackSearch.Daemon" "$@"
+        ;;
+    gui|--gui)
+        shift
+        ;;
+    status|search|add|remove|exclude|rescan|benchmark|mounts|config|service|hotkey|-h|--help|help)
+        exec "$APP_LIB/QuackQuackSearch.Cli" "$@"
+        ;;
+esac
+
+# Ensure background indexing daemon is running inside or on session D-Bus
+if ! pgrep -f "QuackQuackSearch.Daemon" >/dev/null 2>&1; then
+    "$APP_LIB/QuackQuackSearch.Daemon" >/dev/null 2>&1 &
+    sleep 0.4
+fi
+
+exec "$APP_LIB/QuackQuackSearch.Gui" "$@"

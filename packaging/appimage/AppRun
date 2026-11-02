@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+HERE="$(dirname "$(readlink -f "${0}")")"
+APP_LIB="$HERE/usr/lib/quackquacksearch"
+
+export PATH="$HERE/usr/bin:${PATH:-/usr/bin:/bin}"
+export LD_LIBRARY_PATH="$APP_LIB:${LD_LIBRARY_PATH:-}"
+
+ARGV0_NAME="$(basename "${ARGV0:-$0}")"
+
+case "$ARGV0_NAME" in
+    qqs|quackquacksearch-cli)
+        exec "$APP_LIB/QuackQuackSearch.Cli" "$@"
+        ;;
+    quackquacksearch-daemon)
+        exec "$APP_LIB/QuackQuackSearch.Daemon" "$@"
+        ;;
+esac
+
+case "${1:-}" in
+    cli|--cli)
+        shift
+        exec "$APP_LIB/QuackQuackSearch.Cli" "$@"
+        ;;
+    daemon|--daemon)
+        shift
+        exec "$APP_LIB/QuackQuackSearch.Daemon" "$@"
+        ;;
+    gui|--gui)
+        shift
+        ;;
+    status|search|add|remove|exclude|rescan|benchmark|mounts|config|service|hotkey|-h|--help|help)
+        exec "$APP_LIB/QuackQuackSearch.Cli" "$@"
+        ;;
+esac
+
+# Automatically start the background D-Bus daemon if not already running
+if ! pgrep -f "QuackQuackSearch.Daemon" >/dev/null 2>&1; then
+    "$APP_LIB/QuackQuackSearch.Daemon" >/dev/null 2>&1 &
+    sleep 0.4
+fi
+
+exec "$APP_LIB/QuackQuackSearch.Gui" "$@"

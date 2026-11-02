@@ -754,11 +754,26 @@ public static class Program
         if (sub == "install")
         {
             Directory.CreateDirectory(systemdUserDir);
-            string daemonBin = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "QuackQuackSearch.Daemon", "bin", "Release", "net10.0", "QuackQuackSearch.Daemon"));
+            string baseDir = AppContext.BaseDirectory;
+            string[] daemonCandidates =
+            [
+                Path.Combine(baseDir, "QuackQuackSearch.Daemon"),
+                Path.GetFullPath(Path.Combine(baseDir, "..", "daemon", "QuackQuackSearch.Daemon")),
+                "/usr/bin/quackquacksearch-daemon",
+                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".local", "bin", "quackquacksearch-daemon"),
+                Path.GetFullPath(Path.Combine(baseDir, "..", "..", "..", "..", "QuackQuackSearch.Daemon", "bin", "Release", "net10.0", "QuackQuackSearch.Daemon"))
+            ];
 
-            if (!File.Exists(daemonBin))
+            string? appImage = Environment.GetEnvironmentVariable("APPIMAGE");
+            string daemonBin;
+            if (!string.IsNullOrEmpty(appImage) && File.Exists(appImage))
             {
-                daemonBin = "dotnet run --project " + Path.GetFullPath(Path.Combine(Directory.GetCurrentDirectory(), "src", "QuackQuackSearch.Daemon"));
+                daemonBin = $"\"{appImage}\" daemon";
+            }
+            else
+            {
+                daemonBin = daemonCandidates.FirstOrDefault(File.Exists)
+                    ?? ("dotnet run --project " + Path.GetFullPath(Path.Combine(Directory.GetCurrentDirectory(), "src", "QuackQuackSearch.Daemon")));
             }
 
             string unit = $"""
@@ -824,20 +839,21 @@ WantedBy=default.target
     private static int HandleGui(string[] args)
     {
         string baseDir = AppContext.BaseDirectory;
-        string sameDirGui = Path.Combine(baseDir, "QuackQuackSearch.Gui");
-        if (File.Exists(sameDirGui))
-        {
-            Process.Start(new ProcessStartInfo(sameDirGui) { UseShellExecute = false });
-            AnsiConsole.MarkupLine("[green]Launched QuackQuackSearch GUI.[/]");
-            return 0;
-        }
+        string[] guiCandidates =
+        [
+            Path.Combine(baseDir, "QuackQuackSearch.Gui"),
+            Path.GetFullPath(Path.Combine(baseDir, "..", "gui", "QuackQuackSearch.Gui")),
+            Path.GetFullPath(Path.Combine(baseDir, "..", "..", "..", "..", "QuackQuackSearch.Gui", "bin", "Release", "net10.0", "QuackQuackSearch.Gui"))
+        ];
 
-        string relativeGui = Path.GetFullPath(Path.Combine(baseDir, "..", "..", "..", "..", "QuackQuackSearch.Gui", "bin", "Release", "net10.0", "QuackQuackSearch.Gui"));
-        if (File.Exists(relativeGui))
+        foreach (string candidate in guiCandidates)
         {
-            Process.Start(new ProcessStartInfo(relativeGui) { UseShellExecute = false });
-            AnsiConsole.MarkupLine("[green]Launched QuackQuackSearch GUI.[/]");
-            return 0;
+            if (File.Exists(candidate))
+            {
+                Process.Start(new ProcessStartInfo(candidate) { UseShellExecute = false });
+                AnsiConsole.MarkupLine("[green]Launched QuackQuackSearch GUI.[/]");
+                return 0;
+            }
         }
 
         var whichCheck = Process.Start(new ProcessStartInfo("which", "quackquacksearch-gui") { RedirectStandardOutput = true });

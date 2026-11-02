@@ -1,0 +1,43 @@
+app-id: org.quackquacksearch.QuackQuackSearch
+runtime: org.freedesktop.Platform
+runtime-version: '24.08'
+sdk: org.freedesktop.Sdk
+command: quackquacksearch-launcher
+
+finish-args:
+  - --share=ipc
+  - --socket=x11
+  - --socket=fallback-x11
+  - --socket=wayland
+  - --device=dri
+  - --filesystem=host
+  - --talk-name=org.quackquacksearch.Daemon
+  - --own-name=org.quackquacksearch.Daemon
+  - --talk-name=org.kde.krunner1
+  - --talk-name=org.freedesktop.Notifications
+
+modules:
+  - name: quackquacksearch
+    buildsystem: simple
+    build-commands:
+      - install -d /app/lib/quackquacksearch /app/bin
+      - cp -r publish/* /app/lib/quackquacksearch/
+      - chmod 755 /app/lib/quackquacksearch/QuackQuackSearch.Cli
+      - chmod 755 /app/lib/quackquacksearch/QuackQuackSearch.Daemon
+      - chmod 755 /app/lib/quackquacksearch/QuackQuackSearch.Gui
+      - install -Dm755 quackquacksearch-launcher /app/bin/quackquacksearch-launcher
+      - ln -sf /app/lib/quackquacksearch/QuackQuackSearch.Cli /app/bin/qqs
+      - ln -sf /app/lib/quackquacksearch/QuackQuackSearch.Daemon /app/bin/quackquacksearch-daemon
+      - ln -sf /app/lib/quackquacksearch/QuackQuackSearch.Gui /app/bin/quackquacksearch-gui
+      - install -Dm644 org.quackquacksearch.QuackQuackSearch.desktop /app/share/applications/org.quackquacksearch.QuackQuackSearch.desktop
+      - install -Dm644 org.quackquacksearch.QuackQuackSearch.metainfo.xml /app/share/metainfo/org.quackquacksearch.QuackQuackSearch.metainfo.xml
+      - install -Dm644 src/QuackQuackSearch.Gui/Assets/quackquacksearch.png /app/share/icons/hicolor/256x256/apps/org.quackquacksearch.QuackQuackSearch.png
+    sources:
+      - type: dir
+        path: ../..
+      - type: file
+        path: quackquacksearch-launcher
+      - type: file
+        path: org.quackquacksearch.QuackQuackSearch.desktop
+      - type: file
+        path: org.quackquacksearch.QuackQuackSearch.metainfo.xml

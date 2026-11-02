@@ -124,6 +124,44 @@ cd packaging/arch/quackquacksearch-git
 makepkg -si
 ```
 
+### Debian / Ubuntu / Linux Mint (`.deb`)
+
+Download the self-contained `.deb` package (`amd64` or `arm64`) from [GitHub Releases](https://github.com/UkeHa/quackquacksearch/releases/latest):
+
+```bash
+curl -LO https://github.com/UkeHa/quackquacksearch/releases/latest/download/quackquacksearch-linux-amd64.deb
+sudo apt install ./quackquacksearch-linux-amd64.deb
+systemctl --user daemon-reload && systemctl --user enable --now quackquacksearch.service
+```
+
+### Fedora / RHEL / openSUSE (`.rpm`)
+
+Download the self-contained `.rpm` package (`x86_64` or `aarch64`) from [GitHub Releases](https://github.com/UkeHa/quackquacksearch/releases/latest):
+
+```bash
+curl -LO https://github.com/UkeHa/quackquacksearch/releases/latest/download/quackquacksearch-linux-x86_64.rpm
+sudo dnf install ./quackquacksearch-linux-x86_64.rpm
+systemctl --user daemon-reload && systemctl --user enable --now quackquacksearch.service
+```
+
+### Flatpak (`.flatpak`)
+
+```bash
+curl -LO https://github.com/UkeHa/quackquacksearch/releases/latest/download/quackquacksearch-linux-x86_64.flatpak
+flatpak install --user ./quackquacksearch-linux-x86_64.flatpak
+flatpak run org.quackquacksearch.QuackQuackSearch
+```
+
+### AppImage (`.AppImage`)
+
+Portable single-file bundle requiring no installation or runtime dependencies:
+
+```bash
+curl -LO https://github.com/UkeHa/quackquacksearch/releases/latest/download/quackquacksearch-linux-x86_64.AppImage
+chmod +x quackquacksearch-linux-x86_64.AppImage
+./quackquacksearch-linux-x86_64.AppImage
+```
+
 ---
 
 ## ⚡ KDE Plasma KRunner Integration

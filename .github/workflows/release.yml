@@ -18,6 +18,11 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Install Packaging Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y dpkg rpm flatpak ostree desktop-file-utils file
+
       - name: Setup .NET 10
         uses: actions/setup-dotnet@v4
         with:
@@ -27,8 +32,14 @@ jobs:
       - name: Run Tests
         run: dotnet test QuackQuackSearch.slnx --configuration Release
 
-      # Build x64 package
-      - name: Build and Package (linux-x64)
+      - name: Determine Version Tag
+        id: vars
+        run: |
+          VERSION="v0.1.${{ github.run_number }}"
+          echo "tag=${VERSION}" >> $GITHUB_OUTPUT
+
+      # Build x64 tarball (framework-dependent)
+      - name: Build and Package Tarball (linux-x64)
         run: |
           mkdir -p dist/x64/lib/cli dist/x64/lib/daemon dist/x64/lib/gui
           dotnet publish src/QuackQuackSearch.Cli/QuackQuackSearch.Cli.csproj -c Release -r linux-x64 --self-contained false -o dist/x64/lib/cli --nologo -v q
@@ -37,8 +48,8 @@ jobs:
           cp install.sh uninstall.sh README.md README-DE.md CHANGELOG.md LICENSE qqs.png dist/x64/
           tar -czf quackquacksearch-linux-x64.tar.gz -C dist/x64 .
 
-      # Build arm64 package
-      - name: Build and Package (linux-arm64)
+      # Build arm64 tarball (framework-dependent)
+      - name: Build and Package Tarball (linux-arm64)
         run: |
           mkdir -p dist/arm64/lib/cli dist/arm64/lib/daemon dist/arm64/lib/gui
           dotnet publish src/QuackQuackSearch.Cli/QuackQuackSearch.Cli.csproj -c Release -r linux-arm64 --self-contained false -o dist/arm64/lib/cli --nologo -v q
@@ -47,11 +58,36 @@ jobs:
           cp install.sh uninstall.sh README.md README-DE.md CHANGELOG.md LICENSE qqs.png dist/arm64/
           tar -czf quackquacksearch-linux-arm64.tar.gz -C dist/arm64 .
 
-      - name: Determine Version Tag
-        id: vars
+      # Publish self-contained binaries for .deb, .rpm, Flatpak, and AppImage
+      - name: Publish Self-Contained Binaries (linux-x64 & linux-arm64)
         run: |
-          VERSION="v0.1.${{ github.run_number }}"
-          echo "tag=${VERSION}" >> $GITHUB_OUTPUT
+          mkdir -p dist/sc-x64 dist/sc-arm64
+          dotnet publish src/QuackQuackSearch.Cli/QuackQuackSearch.Cli.csproj -c Release -r linux-x64 --self-contained true -o dist/sc-x64 --nologo -v q
+          dotnet publish src/QuackQuackSearch.Daemon/QuackQuackSearch.Daemon.csproj -c Release -r linux-x64 --self-contained true -o dist/sc-x64 --nologo -v q
+          dotnet publish src/QuackQuackSearch.Gui/QuackQuackSearch.Gui.csproj -c Release -r linux-x64 --self-contained true -o dist/sc-x64 --nologo -v q
+          dotnet publish src/QuackQuackSearch.Cli/QuackQuackSearch.Cli.csproj -c Release -r linux-arm64 --self-contained true -o dist/sc-arm64 --nologo -v q
+          dotnet publish src/QuackQuackSearch.Daemon/QuackQuackSearch.Daemon.csproj -c Release -r linux-arm64 --self-contained true -o dist/sc-arm64 --nologo -v q
+          dotnet publish src/QuackQuackSearch.Gui/QuackQuackSearch.Gui.csproj -c Release -r linux-arm64 --self-contained true -o dist/sc-arm64 --nologo -v q
+
+      - name: Build .deb Packages (amd64 & arm64)
+        run: |
+          ./packaging/deb/build-deb.sh "${{ steps.vars.outputs.tag }}" amd64 dist/sc-x64 quackquacksearch-linux-amd64.deb
+          ./packaging/deb/build-deb.sh "${{ steps.vars.outputs.tag }}" arm64 dist/sc-arm64 quackquacksearch-linux-arm64.deb
+
+      - name: Build .rpm Packages (x86_64 & aarch64)
+        run: |
+          ./packaging/rpm/build-rpm.sh "${{ steps.vars.outputs.tag }}" x86_64 dist/sc-x64 quackquacksearch-linux-x86_64.rpm
+          ./packaging/rpm/build-rpm.sh "${{ steps.vars.outputs.tag }}" aarch64 dist/sc-arm64 quackquacksearch-linux-aarch64.rpm
+
+      - name: Build Flatpak Bundles (x86_64 & aarch64)
+        run: |
+          ./packaging/flatpak/build-flatpak.sh "${{ steps.vars.outputs.tag }}" x86_64 dist/sc-x64 quackquacksearch-linux-x86_64.flatpak
+          ./packaging/flatpak/build-flatpak.sh "${{ steps.vars.outputs.tag }}" aarch64 dist/sc-arm64 quackquacksearch-linux-aarch64.flatpak
+
+      - name: Build AppImage Packages (x86_64 & aarch64)
+        run: |
+          ./packaging/appimage/build-appimage.sh "${{ steps.vars.outputs.tag }}" x86_64 dist/sc-x64 quackquacksearch-linux-x86_64.AppImage
+          ./packaging/appimage/build-appimage.sh "${{ steps.vars.outputs.tag }}" aarch64 dist/sc-arm64 quackquacksearch-linux-aarch64.AppImage
 
       - name: Generate Changelog & Release Notes
         run: |
@@ -75,6 +111,23 @@ jobs:
           ---
 
           ### 📦 Installation
+          - **Debian / Ubuntu / Linux Mint (`.deb`):**
+            ```bash
+            sudo apt install ./quackquacksearch-linux-amd64.deb
+            ```
+          - **Fedora / RHEL / openSUSE (`.rpm`):**
+            ```bash
+            sudo dnf install ./quackquacksearch-linux-x86_64.rpm
+            ```
+          - **Flatpak (`.flatpak`):**
+            ```bash
+            flatpak install --user ./quackquacksearch-linux-x86_64.flatpak
+            ```
+          - **AppImage (`.AppImage`):**
+            ```bash
+            chmod +x quackquacksearch-linux-x86_64.AppImage
+            ./quackquacksearch-linux-x86_64.AppImage
+            ```
           - **Arch Linux / CachyOS / AUR:**
             ```bash
             cd packaging/arch/quackquacksearch-bin && makepkg -si
@@ -96,6 +149,14 @@ jobs:
           draft: false
           prerelease: false
           files: |
+            quackquacksearch-linux-amd64.deb
+            quackquacksearch-linux-arm64.deb
+            quackquacksearch-linux-x86_64.rpm
+            quackquacksearch-linux-aarch64.rpm
+            quackquacksearch-linux-x86_64.flatpak
+            quackquacksearch-linux-aarch64.flatpak
+            quackquacksearch-linux-x86_64.AppImage
+            quackquacksearch-linux-aarch64.AppImage
             quackquacksearch-linux-x64.tar.gz
             quackquacksearch-linux-arm64.tar.gz
             CHANGELOG.md

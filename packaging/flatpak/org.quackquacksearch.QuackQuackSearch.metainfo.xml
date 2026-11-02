@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>org.quackquacksearch.QuackQuackSearch</id>
+  <name>QuackQuackSearch</name>
+  <summary>Lightning-fast file search for Linux modeled after Everything</summary>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT</project_license>
+  <developer id="io.github.UkeHa">
+    <name>UkeHa</name>
+  </developer>
+  <description>
+    <p>
+      QuackQuackSearch is a lightweight, ultra-fast file indexer and search service for Linux.
+      It maintains directory paths in a compact in-memory index, tracks local filesystem changes
+      in real time via Linux inotify, polls network mounts asynchronously, and serves sub-millisecond
+      search results via CLI (qqs), a modern desktop GUI, and native KDE Plasma KRunner integration.
+    </p>
+  </description>
+  <launchable type="desktop-id">org.quackquacksearch.QuackQuackSearch.desktop</launchable>
+  <url type="homepage">https://github.com/UkeHa/quackquacksearch</url>
+  <url type="bugtracker">https://github.com/UkeHa/quackquacksearch/issues</url>
+  <url type="vcs-browser">https://github.com/UkeHa/quackquacksearch</url>
+  <provides>
+    <binary>qqs</binary>
+    <binary>quackquacksearch-daemon</binary>
+    <binary>quackquacksearch-gui</binary>
+  </provides>
+  <categories>
+    <category>Utility</category>
+    <category>Filesystem</category>
+    <category>Core</category>
+  </categories>
+  <keywords>
+    <keyword>search</keyword>
+    <keyword>files</keyword>
+    <keyword>find</keyword>
+    <keyword>everything</keyword>
+    <keyword>indexer</keyword>
+    <keyword>krunner</keyword>
+  </keywords>
+  <content_rating type="oars-1.1" />
+</component>
